@@ -43,3 +43,8 @@ target_include_directories(sorus_no_alloc_test PRIVATE src tests)
 target_link_libraries(sorus_no_alloc_test PRIVATE sorus_core doctest::doctest)
 sorus_warnings(sorus_no_alloc_test)
 doctest_discover_tests(sorus_no_alloc_test)
+
+add_executable(sorus_bench bench/bench.cpp)
+target_include_directories(sorus_bench PRIVATE src)
+target_link_libraries(sorus_bench PRIVATE sorus_core)
+sorus_warnings(sorus_bench)
