@@ -18,7 +18,9 @@ class Band {
   static constexpr int kMaxSections = 8;  // 96 dB/oct = order 16 = 8 sections
 
   void prepare(double sample_rate);
-  void set(const BandParams& p);  // clamps; first call after prepare/reset snaps, later calls smooth
+  // Clamps. First call after prepare/reset snaps; later calls smooth, including enable/disable
+  // (a disabled band glides its mix to pass-through, then stops processing).
+  void set(const BandParams& p);
   void reset();
   void process(float* buf, int frames, int slot);  // audio thread: no alloc, no locks
 
@@ -26,8 +28,12 @@ class Band {
   struct Slot {
     SvfSection cur[kMaxSections];
     double ic1[kMaxSections] = {}, ic2[kMaxSections] = {};
+    int settle = 0;         // samples left before a disabled band counts as settled
+    bool bypassed = false;  // settled at pass-through: process skips the slot
+    void clear_state();
   };
   double sr_ = 48000, alpha_ = 0;
+  int settle_ = 0;  // 20 tau: coefficients within e^-20 of pass-through
   bool enabled_ = true, snap_ = true;
   int live_ = 0;  // sections processed: max needed since the last snap
   SvfSection target_[kMaxSections];

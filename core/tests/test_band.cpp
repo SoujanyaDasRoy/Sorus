@@ -79,3 +79,35 @@ TEST_CASE("first set() snaps, later set() glides") {
   const double g = gain_first_5ms(glide);
   CHECK(g > 1); CHECK(g < 6);
 }
+
+// Runs ~0.5 s of a 1 kHz sine at 0.5 through a +12 dB Q1 bell enabled as `before`, then the rest as `after`.
+// The toggle lands on a sine peak (0.5 s + 90 deg): exactly 0.5 s is a zero crossing and would hide the click.
+static std::vector<float> toggled(Band& b, bool before, bool after) {
+  constexpr int kToggle = 24012;
+  BandParams p; p.gain_db = 12; p.q = 1; p.enabled = before;
+  b.prepare(48000); b.set(p);
+  auto y = sine(1000, 48000, 48000, 0.5f);
+  b.process(y.data(), kToggle, 0);
+  p.enabled = after; b.set(p);
+  b.process(y.data() + kToggle, 48000 - kToggle, 0);
+  return y;
+}
+static double max_delta(const float* y, int from, int to) {
+  double d = 0;
+  for (int i = from + 1; i < to; ++i) d = std::max(d, std::abs(static_cast<double>(y[i]) - y[i - 1]));
+  return d;
+}
+TEST_CASE("disabling a band does not click") {
+  Band b;
+  auto off = toggled(b, true, false);
+  const double wet_off = max_delta(off.data(), 12000, 24000);  // steady state at +12 dB
+  CHECK(max_delta(off.data(), 0, 48000) <= 1.2 * wet_off);
+  auto on = toggled(b, false, true);
+  const double wet_on = max_delta(on.data(), 36000, 48000);
+  CHECK(max_delta(on.data(), 0, 48000) <= 1.2 * wet_on);
+}
+TEST_CASE("disabled band settles to unity") {
+  Band b;
+  toggled(b, true, false);
+  CHECK(std::abs(measure_gain_db([&](float* x, int n) { b.process(x, n, 0); }, 48000, 1000)) < 0.01);
+}

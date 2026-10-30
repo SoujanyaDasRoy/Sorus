@@ -80,45 +80,58 @@ double response_db(const BandParams& raw, double freq, double sample_rate) {
 void Band::prepare(double sample_rate) {
   sr_ = sample_rate;
   alpha_ = 1 - std::exp(-1 / (0.010 * sample_rate));  // tau = 10 ms
+  settle_ = static_cast<int>(0.2 * sample_rate);
   live_ = 0;
   reset();
 }
 
+void Band::Slot::clear_state() {
+  std::fill(std::begin(ic1), std::end(ic1), 0.0);
+  std::fill(std::begin(ic2), std::end(ic2), 0.0);
+}
+
 void Band::reset() {
-  for (auto& s : slots_) {
-    std::fill(std::begin(s.ic1), std::end(s.ic1), 0.0);
-    std::fill(std::begin(s.ic2), std::end(s.ic2), 0.0);
-  }
+  for (auto& s : slots_) s.clear_state();
   snap_ = true;
 }
 
 void Band::set(const BandParams& raw) {
   const BandParams p = clamp(raw, sr_);
+  const bool was_enabled = enabled_;
   enabled_ = p.enabled;
   SvfSection t[kMaxSections];
   const int n = design(p, sr_, t);
   for (int i = 0; i < kMaxSections; ++i) {
-    if (i < n) {
-      target_[i] = t[i];
-    } else {  // unused section: keep g/k, glide the mix to pass-through
+    if (i < n) target_[i] = t[i];
+    if (i >= n || !enabled_) {  // unused or disabled: keep g/k, glide the mix to pass-through
       target_[i].m0 = 1;
       target_[i].m1 = target_[i].m2 = 0;
     }
   }
   if (snap_) {
-    for (auto& s : slots_) std::copy(std::begin(target_), std::end(target_), std::begin(s.cur));
+    for (auto& s : slots_) {
+      std::copy(std::begin(target_), std::end(target_), std::begin(s.cur));
+      s.bypassed = !enabled_;
+    }
     live_ = n;
     snap_ = false;
-  } else {
-    // ponytail: sections only retire on the next snap (reset/prepare); idle ones still cost a tick each.
-    live_ = std::max(live_, n);
+    return;
+  }
+  // ponytail: sections only retire on the next snap (reset/prepare); idle ones still cost a tick each.
+  live_ = std::max(live_, n);
+  for (auto& s : slots_) {
+    if (was_enabled && !enabled_) s.settle = settle_;
+    if (!was_enabled && enabled_ && s.bypassed) {  // fully bypassed: start clean from pass-through
+      s.clear_state();
+      s.bypassed = false;
+    }
   }
 }
 
 void Band::process(float* buf, int frames, int slot) {
   assert(slot >= 0 && slot < kMaxSlots);
-  if (!enabled_) return;
   Slot& st = slots_[slot];
+  if (st.bypassed) return;
   for (int i = 0; i < frames; ++i) {
     double v = buf[i];
     for (int j = 0; j < live_; ++j) {
@@ -139,6 +152,10 @@ void Band::process(float* buf, int frames, int slot) {
       v = c.m0 * v + c.m1 * v1 + c.m2 * v2;
     }
     buf[i] = static_cast<float>(v);
+  }
+  if (!enabled_ && (st.settle -= frames) <= 0) {  // mix has reached pass-through: stop ticking
+    std::copy(std::begin(target_), std::end(target_), std::begin(st.cur));
+    st.bypassed = true;
   }
 }
 
