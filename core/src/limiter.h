@@ -8,7 +8,7 @@
 
 namespace sorus {
 
-// Lookahead brickwall limiter on the 4x-oversampled true peak (BS.1770 practice), one gain
+// Lookahead brickwall limiter on the 8x-oversampled true peak (BS.1770 practice, finer grid), one gain
 // linked across all channels. Gain computer, per input sample:
 //   required r = min(1, ceiling / true peak)  ->  sliding min over B + 2*kGuard samples
 //   ->  box-car mean over B samples  ->  instant attack / 50 ms release,
@@ -18,8 +18,10 @@ namespace sorus {
 // over the ceiling the gain is exactly 1 and the output is the input delayed by latency_frames().
 class TruePeakLimiter {
  public:
-  // ponytail: 32-tap Hann-sinc phases are flat (+-0.07 dB) to 0.9 Nyquist; content above that
-  // under-reads (full-band white noise at +12 dBFS overshoots ~0.4-0.9 dB). Longer/Kaiser FIR if needed.
+  // ponytail: 8x grid: a peak can sit T/16 from the nearest phase, under-reading by up to
+  // -20*log10(cos(pi*f/(8*fs))) = 0.17 dB at Nyquist (32-tap Hann phases also droop above 0.9 Nyquist).
+  // Next step if that matters: 16x (0.04 dB) or a parabolic fit around the largest phase.
+  static constexpr int kOver = 8;   // detector oversampling
   static constexpr int kTaps = 32;  // detector FIR taps per oversampled phase
   static constexpr int kDetectorDelay = kTaps / 2;
   static constexpr int kGuard = 8;  // neighbours on each side held at the peak's gain
@@ -31,7 +33,7 @@ class TruePeakLimiter {
   void process(float* const* ch, int channels, int frames);  // audio thread: no alloc
 
  private:
-  float h_[3][kTaps] = {};  // fractional phases 1/4, 2/4, 3/4 (phase 0 is the sample itself)
+  float h_[kOver - 1][kTaps] = {};  // fractional phases 1/8 .. 7/8 (phase 0 is the sample itself)
   static constexpr double kDefaultCeiling = 0.89125093813374556;  // -1 dBTP
   double ceiling_ = kDefaultCeiling, target_ = kDefaultCeiling;   // linear
   double ceiling_alpha_ = 1, release_alpha_ = 1, gain_ = 1;

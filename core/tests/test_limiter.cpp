@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <numbers>
 #include <vector>
 
@@ -49,4 +50,20 @@ TEST_CASE("limiter applies a lowered ceiling with one linked gain") {
   // Same gain on both channels.
   for (int i = 24000; i < 48000; i += 101)
     CHECK(quiet[i] * loud_in[i - d] == doctest::Approx(loud[i] * quiet_in[i - d]).epsilon(1e-3));
+}
+
+TEST_CASE("limiter holds ceiling on broadband noise") {
+  const int n = 96000, skip = 4800;  // 2 s at 48 kHz, skip 0.1 s
+  TruePeakLimiter l; l.prepare(48000, n, 2);
+  std::vector<float> y[2] = {std::vector<float>(n), std::vector<float>(n)};
+  uint32_t s = 1;
+  auto uni = [&] { s = s * 1664525u + 1013904223u; return ((s >> 8) + 0.5) / 16777216.0; };  // (0, 1)
+  for (auto& c : y) {  // Gaussian (Box-Muller), scaled to a +12 dBFS sample peak
+    float m = 0;
+    for (auto& v : c) { v = static_cast<float>(std::sqrt(-2 * std::log(uni())) * std::cos(2 * std::numbers::pi * uni())); m = std::max(m, std::abs(v)); }
+    for (auto& v : c) v *= 4 / m;
+  }
+  float* ch[2] = {y[0].data(), y[1].data()};
+  l.process(ch, 2, n);
+  for (const auto& c : y) CHECK(true_peak_db({c.begin() + skip, c.end()}) <= -1.0 + 0.2);
 }

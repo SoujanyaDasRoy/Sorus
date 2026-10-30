@@ -15,14 +15,17 @@ double db_to_lin(double db) { return std::pow(10, db / 20); }
 }  // namespace
 
 void TruePeakLimiter::prepare(double sample_rate, int /*max_frames: block-size independent*/, int /*channels*/) {
-  // Hann-windowed sinc, tap j reads input sample (n - kTaps + 1 + j); phase k interpolates
-  // t = n - kDetectorDelay + k/4.
+  // Hann-windowed sinc, normalised to unity DC gain. Tap j reads input sample (n - kTaps + 1 + j);
+  // phase k interpolates t = n - kDetectorDelay + k/kOver.
   constexpr int half = kTaps / 2;
-  for (int k = 1; k < 4; ++k)
+  for (int k = 1; k < kOver; ++k) {
+    double h[kTaps], sum = 0;
     for (int j = 0; j < kTaps; ++j) {
-      const double d = k / 4.0 - (j - half + 1);
-      h_[k - 1][j] = static_cast<float>(std::sin(pi * d) / (pi * d) * 0.5 * (1 + std::cos(pi * d / half)));
+      const double d = static_cast<double>(k) / kOver - (j - half + 1);
+      sum += h[j] = std::sin(pi * d) / (pi * d) * 0.5 * (1 + std::cos(pi * d / half));
     }
+    for (int j = 0; j < kTaps; ++j) h_[k - 1][j] = static_cast<float>(h[j] / sum);
+  }
 
   const int lookahead = std::max(kGuard, static_cast<int>(std::lround(0.0015 * sample_rate)));
   box_ = lookahead + 1 - kGuard;
@@ -58,7 +61,7 @@ void TruePeakLimiter::process(float* const* ch, int channels, int frames) {
   channels = std::clamp(channels, 0, kMaxChannels);
   if (channels == 0 || box_v_.empty()) return;
   for (int i = 0; i < frames; ++i) {
-    // True peak of the newest detectable point (input sample n - kDetectorDelay and the three
+    // True peak of the newest detectable point (input sample n - kDetectorDelay and the seven
     // positions after it), max over channels.
     double peak = 0;
     for (int c = 0; c < channels; ++c) {
