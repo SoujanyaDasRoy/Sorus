@@ -17,15 +17,25 @@ double db_to_lin(double db) { return std::pow(10, db / 20); }
 void TruePeakLimiter::prepare(double sample_rate, int /*max_frames: block-size independent*/, int /*channels*/) {
   // Hann-windowed sinc, normalised to unity DC gain. Tap j reads input sample (n - kTaps + 1 + j);
   // phase k interpolates t = n - kDetectorDelay + k/kOver.
+  // Phase kOver-k is phase k mirrored (tap j <-> kTaps-1-j), so phases k and kOver-k come from one
+  // folded pair of 16-tap filters (see h_).
   constexpr int half = kTaps / 2;
-  for (int k = 1; k < kOver; ++k) {
-    double h[kTaps], sum = 0;
+  double bound = 1;  // phase 0 reads the sample itself
+  for (int k = 1; k <= kOver / 2; ++k) {
+    double h[kTaps], sum = 0, abs_sum = 0;
     for (int j = 0; j < kTaps; ++j) {
       const double d = static_cast<double>(k) / kOver - (j - half + 1);
       sum += h[j] = std::sin(pi * d) / (pi * d) * 0.5 * (1 + std::cos(pi * d / half));
     }
-    for (int j = 0; j < kTaps; ++j) h_[k - 1][j] = static_cast<float>(h[j] / sum);
+    for (int j = 0; j < kTaps; ++j) abs_sum += std::abs(h[j] /= sum);
+    bound = std::max(bound, abs_sum);
+    for (int j = 0; j < half; ++j) {
+      h_[j][k - 1] = static_cast<float>((h[j] + h[kTaps - 1 - j]) / 2);
+      if (k < kOver / 2) h_[j][kOver / 2 + k - 1] = static_cast<float>((h[j] - h[kTaps - 1 - j]) / 2);
+    }
   }
+  // Float rounding puts each computed phase within ~1e-5 (relative to bound * max|x|) of its exact value.
+  quiet_ = bound * (1 + 1e-4);
 
   const int lookahead = std::max(kGuard, static_cast<int>(std::lround(0.0015 * sample_rate)));
   box_ = lookahead + 1 - kGuard;
@@ -37,9 +47,10 @@ void TruePeakLimiter::prepare(double sample_rate, int /*max_frames: block-size i
   int size = 1;
   while (size <= std::max(latency_, kTaps)) size *= 2;
   mask_ = size - 1;
-  for (auto& r : ring_) r.assign(static_cast<size_t>(size), 0.0f);  // every channel: process may get up to 8
+  for (auto& r : ring_) r.assign(2 * static_cast<size_t>(size), 0.0f);  // every channel: process may get up to 8
   pos_ = 0;
   n_ = 0;
+  loud_ = -kTaps;  // silent history
   dq_t_.assign(static_cast<size_t>(hold_), 0);
   dq_v_.assign(static_cast<size_t>(hold_), 1.0);
   dq_head_ = dq_size_ = 0;
@@ -55,25 +66,43 @@ void TruePeakLimiter::prepare(double sample_rate, int /*max_frames: block-size i
 void TruePeakLimiter::set_ceiling_db(double db) {
   if (!std::isfinite(db)) db = -1;
   target_ = db_to_lin(std::clamp(db, -24.0, 0.0));
+  loud_ = n_;  // quiet_ tests so far assumed the old ceiling: detect until they leave the window
 }
 
 void TruePeakLimiter::process(float* const* ch, int channels, int frames) {
   channels = std::clamp(channels, 0, kMaxChannels);
   if (channels == 0 || box_v_.empty()) return;
+  const int size = mask_ + 1;
   for (int i = 0; i < frames; ++i) {
-    // True peak of the newest detectable point (input sample n - kDetectorDelay and the seven
-    // positions after it), max over channels.
-    double peak = 0;
+    // ceiling_ glides monotonically to target_, so `lowest` bounds it for every step this sample is in
+    // the detector window (a new target resets loud_).
+    const double lowest = std::min(ceiling_, target_);
     for (int c = 0; c < channels; ++c) {
       float* r = ring_[static_cast<size_t>(c)].data();
-      r[pos_] = ch[c][i];
-      float x[kTaps];
-      for (int j = 0; j < kTaps; ++j) x[j] = r[(pos_ - kTaps + 1 + j) & mask_];
-      peak = std::max(peak, static_cast<double>(std::abs(x[kTaps - 1 - kDetectorDelay])));
-      for (const auto& h : h_) {
-        float y = 0;
-        for (int j = 0; j < kTaps; ++j) y += h[j] * x[j];
-        peak = std::max(peak, static_cast<double>(std::abs(y)));
+      r[pos_] = r[pos_ + size] = ch[c][i];
+      if (std::abs(ch[c][i]) * quiet_ >= lowest) loud_ = n_;
+    }
+    // True peak of the newest detectable point (input sample n - kDetectorDelay and the seven
+    // positions after it), max over channels. Skipped while the whole window is quiet: it would be
+    // below the ceiling anyway.
+    // ponytail: lanes are 4-wide loops; clang/gcc vectorize them, MSVC (x64) keeps them scalar, so loud
+    // input (detector on every sample) costs ~0.003 of a core more on Windows. Next step if that matters:
+    // detect a chunk of samples per pass (sample-inner loops vectorize everywhere) or SSE2/NEON lanes.
+    double peak = 0;
+    if (n_ - loud_ < kTaps) {
+      for (int c = 0; c < channels; ++c) {
+        const float* x = ring_[static_cast<size_t>(c)].data() + ((pos_ - kTaps + 1) & mask_);
+        constexpr int kHalf = kOver / 2;
+        float y[kOver] = {};  // [k - 1]: (phase k + phase kOver-k) / 2; [kHalf + k - 1]: their half-difference
+        for (int j = 0; j < kTaps / 2; ++j) {
+          const float sum = x[j] + x[kTaps - 1 - j], diff = x[j] - x[kTaps - 1 - j], *h = h_[j];
+          for (int k = 0; k < kHalf; ++k) y[k] += h[k] * sum;
+          for (int k = kHalf; k < kOver; ++k) y[k] += h[k] * diff;
+        }
+        peak = std::max(peak, static_cast<double>(std::abs(x[kTaps - 1 - kDetectorDelay])));
+        // max(|a + b|, |a - b|) == |a| + |b|: the larger of each mirrored pair of phases.
+        for (int k = 0; k < kHalf; ++k)
+          peak = std::max(peak, static_cast<double>(std::abs(y[k])) + std::abs(y[kHalf + k]));
       }
     }
     ceiling_ += ceiling_alpha_ * (target_ - ceiling_);
@@ -84,7 +113,7 @@ void TruePeakLimiter::process(float* const* ch, int channels, int frames) {
       if (++dq_head_ == hold_) dq_head_ = 0;
       --dq_size_;
     }
-    auto at = [&](int k) { return static_cast<size_t>((dq_head_ + k) % hold_); };
+    auto at = [&](int k) { k += dq_head_; return static_cast<size_t>(k < hold_ ? k : k - hold_); };
     while (dq_size_ > 0 && dq_v_[at(dq_size_ - 1)] >= required) --dq_size_;
     dq_t_[at(dq_size_)] = n_;
     dq_v_[at(dq_size_)] = required;

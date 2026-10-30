@@ -96,6 +96,12 @@ void ParametricEq::run(float* const* ch, int channels, int n) {
       continue;
     }
     const unsigned mask = slot_mask(m, channels);
+    if (mask == (1u << channels) - 1) {
+      // Every slot: lets the band run them in pairs. ponytail: L/R/M/S bands run one recurrence at a
+      // time (~1.6x slower per channel); pair them across bands if many single-channel bands matter.
+      bands_[i].process(ch, channels, n);
+      continue;
+    }
     for (int s = 0; s < channels; ++s)
       if (mask >> s & 1u) bands_[i].process(ch[s], n, s);
   }

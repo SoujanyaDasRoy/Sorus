@@ -108,10 +108,18 @@ void Band::set(const BandParams& raw) {
       target_[i].m1 = target_[i].m2 = 0;
     }
   }
+  for (int i = 0; i < kMaxSections; ++i) {
+    const SvfSection& c = target_[i];
+    const double a1 = 1 / (1 + c.g * (c.g + c.k)), a2 = c.g * a1, a3 = c.g * a2;
+    steady_[i] = {2 * a1 - 1, -2 * a2, 2 * a2, 1 - 2 * a3, 2 * a2, 2 * a3,
+                  c.m0 + c.m1 * a2 + c.m2 * a3, c.m1 * a1 + c.m2 * a2, c.m2 * (1 - a3) - c.m1 * a2};
+  }
   if (snap_) {
     for (auto& s : slots_) {
       std::copy(std::begin(target_), std::end(target_), std::begin(s.cur));
       s.bypassed = !enabled_;
+      s.steady = enabled_;
+      s.settle = 0;
     }
     live_ = n;
     snap_ = false;
@@ -120,7 +128,8 @@ void Band::set(const BandParams& raw) {
   // ponytail: sections only retire on the next snap (reset/prepare); idle ones still cost a tick each.
   live_ = std::max(live_, n);
   for (auto& s : slots_) {
-    if (was_enabled && !enabled_) s.settle = settle_;
+    s.settle = settle_;  // every change re-arms the glide
+    s.steady = false;
     if (!was_enabled && enabled_ && s.bypassed) {  // fully bypassed: start clean from pass-through
       s.clear_state();
       s.bypassed = false;
@@ -132,6 +141,34 @@ void Band::process(float* buf, int frames, int slot) {
   assert(slot >= 0 && slot < kMaxSlots);
   Slot& st = slots_[slot];
   if (st.bypassed) return;
+  if (st.steady) {
+    Slot* s[1] = {&st};
+    return run_steady<1>(s, &buf, frames);
+  }
+  glide(st, buf, frames);
+  if ((st.settle -= frames) <= 0) {  // within e^-20 of the target: snap and stop smoothing
+    std::copy(std::begin(target_), std::end(target_), std::begin(st.cur));
+    st.bypassed = !enabled_;  // mix has reached pass-through: stop ticking
+    st.steady = enabled_;
+  }
+}
+
+void Band::process(float* const* bufs, int count, int frames) {
+  assert(count >= 0 && count <= kMaxSlots);
+  int s = 0;
+  for (; s + 1 < count; s += 2) {
+    if (slots_[s].steady && slots_[s + 1].steady) {
+      Slot* st[2] = {&slots_[s], &slots_[s + 1]};
+      run_steady<2>(st, bufs + s, frames);
+    } else {
+      process(bufs[s], frames, s);
+      process(bufs[s + 1], frames, s + 1);
+    }
+  }
+  if (s < count) process(bufs[s], frames, s);
+}
+
+void Band::glide(Slot& st, float* buf, int frames) {
   for (int i = 0; i < frames; ++i) {
     double v = buf[i];
     for (int j = 0; j < live_; ++j) {
@@ -142,7 +179,6 @@ void Band::process(float* buf, int frames, int slot) {
       c.m0 += alpha_ * (t.m0 - c.m0);
       c.m1 += alpha_ * (t.m1 - c.m1);
       c.m2 += alpha_ * (t.m2 - c.m2);
-      // ponytail: a1..a3 recomputed every sample; cache them once smoothing settles if profiling says so.
       const double a1 = 1 / (1 + c.g * (c.g + c.k)), a2 = c.g * a1, a3 = c.g * a2;
       double& ic1 = st.ic1[j];
       double& ic2 = st.ic2[j];
@@ -153,9 +189,33 @@ void Band::process(float* buf, int frames, int slot) {
     }
     buf[i] = static_cast<float>(v);
   }
-  if (!enabled_ && (st.settle -= frames) <= 0) {  // mix has reached pass-through: stop ticking
-    std::copy(std::begin(target_), std::end(target_), std::begin(st.cur));
-    st.bypassed = true;
+}
+
+template <int N>
+void Band::run_steady(Slot* const* st, float* const* buf, int frames) const {
+  constexpr int kChunk = 64;  // sections chain in double, as in glide()
+  double v[N][kChunk];
+  for (int pos = 0; pos < frames; pos += kChunk) {
+    const int n = std::min(kChunk, frames - pos);
+    for (int c = 0; c < N; ++c)
+      for (int i = 0; i < n; ++i) v[c][i] = buf[c][pos + i];
+    for (int j = 0; j < live_; ++j) {
+      const Steady k = steady_[j];
+      double s1[N], s2[N];  // locals: no aliasing with v/buf, so the state stays in registers
+      for (int c = 0; c < N; ++c) s1[c] = st[c]->ic1[j], s2[c] = st[c]->ic2[j];
+      for (int i = 0; i < n; ++i) {
+        for (int c = 0; c < N; ++c) {
+          const double x = v[c][i];
+          v[c][i] = k.d0 * x + k.d1 * s1[c] + k.d2 * s2[c];
+          const double t = k.c11 * s1[c] + k.c12 * s2[c] + k.b1 * x;
+          s2[c] = k.c21 * s1[c] + k.c22 * s2[c] + k.b2 * x;
+          s1[c] = t;
+        }
+      }
+      for (int c = 0; c < N; ++c) st[c]->ic1[j] = s1[c], st[c]->ic2[j] = s2[c];
+    }
+    for (int c = 0; c < N; ++c)
+      for (int i = 0; i < n; ++i) buf[c][pos + i] = static_cast<float>(v[c][i]);
   }
 }
 

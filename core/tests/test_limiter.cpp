@@ -67,3 +67,24 @@ TEST_CASE("limiter holds ceiling on broadband noise") {
   l.process(ch, 2, n);
   for (const auto& c : y) CHECK(true_peak_db({c.begin() + skip, c.end()}) <= -1.0 + 0.2);
 }
+
+// The detector is skipped while every sample in its window is under ceiling / sum|h|; that must never
+// change the result.
+TEST_CASE("limiter detector skip is exact") {
+  // 0.8 runs the detector (over the skip threshold) yet stays under -1 dBTP: still bit-exact.
+  TruePeakLimiter a; a.prepare(48000, 48000, 1);
+  auto x = sine(1000, 48000, 48000, 0.8f); const auto in = x;
+  float* ch[1] = {x.data()}; a.process(ch, 1, 48000);
+  const int d = a.latency_frames();
+  for (int i = d; i < 48000; ++i) REQUIRE(x[i] == in[i - d]);
+
+  // Silence (skipped), then fs/4 at 45 deg: samples at -3 dB, under the ceiling, true peak 0 dBTP.
+  TruePeakLimiter b; b.prepare(48000, 256, 1);
+  std::vector<float> y(48000, 0.f);
+  for (int i = 24000; i < 48000; ++i) y[i] = static_cast<float>(std::sin(std::numbers::pi / 2 * i + std::numbers::pi / 4));
+  for (int pos = 0; pos < 48000; pos += 256) {
+    float* c[1] = {y.data() + pos};
+    b.process(c, 1, std::min(256, 48000 - pos));
+  }
+  CHECK(true_peak_db(y) <= -1.0 + 0.2);
+}
