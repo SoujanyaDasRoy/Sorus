@@ -24,8 +24,13 @@ class Engine {
   Engine(double sample_rate, int max_frames, int channels);
 
   // Control thread. Never block: if the queue is full, the latest values stay pending and are
-  // retried on the next setter call.
-  void set_band(int index, const BandParams& p);  // out-of-range index ignored
+  // retried by the next setter call or flush().
+  // Pushes pending state; true when nothing is left pending. Never blocks. Platform layers must call it
+  // on stream start, and periodically from the UI while it returns false.
+  bool flush();
+  // Out-of-range index ignored. The band and its new effective preamp travel in one command, so the
+  // audio thread never plays a band change without its auto-preamp compensation.
+  void set_band(int index, const BandParams& p);
   void set_preamp_db(double db);                  // clamped to +-24 dB; non-finite ignored
   void set_auto_preamp(bool on);                  // on by default
   void set_limiter_ceiling_db(double db);         // limiter clamps to [-24, 0] dBTP
@@ -41,7 +46,7 @@ class Engine {
     enum class Kind { Band, Preamp, Ceiling, Bypass } kind;
     int index;  // band index, or Block for Bypass
     BandParams band;
-    double value;  // dB for Preamp/Ceiling, 0/1 for Bypass
+    double value;  // effective preamp dB for Band/Preamp, ceiling dB, 0/1 for Bypass
   };
   // Linear glide that lands exactly on its target.
   struct Ramp {
@@ -55,7 +60,6 @@ class Engine {
   };
 
   void update_preamp();  // control: recompute the effective preamp, then flush
-  void flush();          // control: push dirty state; whatever does not fit stays dirty
   void apply(const Command& c);
   void run(int frames);  // audio: chain on the planar scratch
 

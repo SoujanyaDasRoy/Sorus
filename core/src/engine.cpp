@@ -65,31 +65,38 @@ void Engine::update_preamp() {
   flush();
 }
 
-void Engine::flush() {
+bool Engine::flush() {
   using K = Command::Kind;
   for (int i = 0; i < kMaxBands; ++i) {
     if (!band_dirty_[i]) continue;
-    if (!queue_.push({K::Band, i, bands_[i], 0})) return;
+    // Carries the latest effective preamp (it already counts any band still pending; the last band to
+    // land brings the audio side to the matching pair).
+    if (!queue_.push({K::Band, i, bands_[i], effective_db_})) return false;
     band_dirty_[i] = false;
+    effective_dirty_ = false;
   }
   if (effective_dirty_) {
-    if (!queue_.push({K::Preamp, 0, {}, effective_db_})) return;
+    if (!queue_.push({K::Preamp, 0, {}, effective_db_})) return false;
     effective_dirty_ = false;
   }
   if (ceiling_dirty_) {
-    if (!queue_.push({K::Ceiling, 0, {}, ceiling_db_})) return;
+    if (!queue_.push({K::Ceiling, 0, {}, ceiling_db_})) return false;
     ceiling_dirty_ = false;
   }
   for (int i = 0; i < 2; ++i) {
     if (!bypass_dirty_[i]) continue;
-    if (!queue_.push({K::Bypass, i, {}, bypass_[i] ? 1.0 : 0.0})) return;
+    if (!queue_.push({K::Bypass, i, {}, bypass_[i] ? 1.0 : 0.0})) return false;
     bypass_dirty_[i] = false;
   }
+  return true;
 }
 
 void Engine::apply(const Command& c) {
   switch (c.kind) {
-    case Command::Kind::Band: eq_->set_band(c.index, c.band); break;
+    case Command::Kind::Band:
+      eq_->set_band(c.index, c.band);
+      gain_.set(std::pow(10.0, c.value / 20), ramp_len_);
+      break;
     case Command::Kind::Preamp: gain_.set(std::pow(10.0, c.value / 20), ramp_len_); break;
     case Command::Kind::Ceiling: lim_.set_ceiling_db(c.value); break;
     case Command::Kind::Bypass:

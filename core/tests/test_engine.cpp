@@ -98,6 +98,44 @@ TEST_CASE("setters on a full queue keep the latest value") {
   CHECK(std::abs(engine_gain_db(e, 0, 1000) - 3) < 0.1);
 }
 
+TEST_CASE("edits made while the queue is full reach audio after flush") {
+  Engine e(48000, 512, 2); e.set_auto_preamp(true);
+  BandParams p; p.q = 1;
+  for (int i = 0; i < 300; ++i) { p.gain_db = i == 299 ? 6 : -6 + i % 12; e.set_band(0, p); }
+  std::vector<float> buf(1024);
+  e.process_interleaved(buf.data(), 512);  // drains what fit
+  bool done = false;
+  for (int i = 0; i < 10 && !done; ++i) { done = e.flush(); e.process_interleaved(buf.data(), 512); }
+  REQUIRE(done);
+  CHECK(std::abs(engine_gain_db(e, 0, 1000)) < 0.1);
+  // Auto preamp cancels any boosted band at its centre, so a stale band would pass the check above too;
+  // off-centre, only the final +6 dB band with its compensation gives this value.
+  CHECK(std::abs(engine_gain_db(e, 0, 100) - (e.eq_response_db(100) - e.eq_response_db(1000))) < 0.1);
+}
+
+// A band change and its auto-preamp compensation must reach the audio thread together. The split is made
+// deterministic by filling the queue so exactly one more command fits: a separate Preamp command after the
+// Band command would be left behind and the block would play the boost uncompensated.
+TEST_CASE("band and compensation land in the same block") {
+  Engine e(48000, 512, 2);  // auto preamp on by default
+  constexpr int block = 512;
+  const auto x = sine(1000, 48000, 48000);  // amplitude 0.25
+  std::vector<float> buf(2 * block);
+  int pos = 0;
+  auto run_block = [&] {
+    for (int i = 0; i < block; ++i) buf[2 * i] = buf[2 * i + 1] = x[pos + i];
+    pos += block;
+    e.process_interleaved(buf.data(), block);
+    float peak = 0;
+    for (float v : buf) peak = std::max(peak, std::abs(v));
+    return peak;
+  };
+  for (int i = 0; i < 20; ++i) run_block();
+  for (int i = 0; i < 255; ++i) e.set_preamp_db(0);
+  BandParams p; p.gain_db = 12; p.q = 1; e.set_band(0, p);
+  CHECK(20 * std::log10(run_block() / 0.25) <= 1.0);
+}
+
 // Not in the brief: out-of-range arguments are clamped or ignored.
 TEST_CASE("engine tolerates bad arguments") {
   Engine e(48000, 0, 99);
