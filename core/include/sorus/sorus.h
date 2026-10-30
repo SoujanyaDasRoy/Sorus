@@ -31,6 +31,11 @@ SORUS_API int sorus_eq_response_db(const SorusEngine* e, const double* freqs, do
  * -1 = NULL. Call on stream start, and periodically from the UI while it returns 0. */
 SORUS_API int sorus_flush(SorusEngine* e);
 
+/* Android session mode: fits a preset's EQ onto DynamicsProcessing bands given by their upper cutoffs
+ * (band 0 starts at 20 Hz). Writes n gains (dB, clamped to +-24). 0 on success, -1 on bad args/parse error. */
+SORUS_API int sorus_fit_dp_bands(const char* preset_json, size_t len, double sample_rate, const float* cutoff_hz,
+                                 int n, float* gain_db_out);
+
 #ifdef __cplusplus
 }
 #endif

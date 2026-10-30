@@ -7,6 +7,7 @@
 #include <string>
 #include <string_view>
 
+#include "dp_fit.h"
 #include "engine.h"
 #include "preset.h"
 
@@ -69,5 +70,19 @@ int sorus_eq_response_db(const SorusEngine* e, const double* freqs, double* out_
 }
 
 int sorus_flush(SorusEngine* e) { return e ? (e->engine.flush() ? 1 : 0) : -1; }
+
+int sorus_fit_dp_bands(const char* preset_json, size_t len, double sample_rate, const float* cutoff_hz, int n,
+                       float* gain_db_out) {
+  if (!preset_json || !cutoff_hz || !gain_db_out || n < 0 || !(sample_rate >= 8000 && sample_rate <= 384000))
+    return -1;
+  try {
+    auto p = sorus::parse_preset(std::string_view(preset_json, len), nullptr);
+    if (!p) return -1;
+    sorus::fit_to_dp_bands(p->bands, sample_rate, cutoff_hz, n, gain_db_out);
+    return 0;
+  } catch (...) {
+    return -1;
+  }
+}
 
 }  // extern "C"
