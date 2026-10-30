@@ -7,6 +7,7 @@
 #include "limiter.h"
 #include "parametric_eq.h"
 #include "params.h"
+#include "preset.h"
 #include "spsc_queue.h"
 
 namespace sorus {
@@ -35,6 +36,7 @@ class Engine {
   void set_auto_preamp(bool on);                  // on by default
   void set_limiter_ceiling_db(double db);         // limiter clamps to [-24, 0] dBTP
   void set_bypass(Block b, bool bypassed);
+  void load(const Preset& p);  // every field; bands past p.bands.size() are disabled
   double eq_response_db(double freq) const;  // EQ curve as set (ignores bypass)
   int latency_frames() const { return latency_; }
 

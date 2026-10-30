@@ -56,6 +56,16 @@ void Engine::set_bypass(Block b, bool bypassed) {
   update_preamp();  // EQ bypass drops the auto offset
 }
 
+void Engine::load(const Preset& p) {
+  set_preamp_db(p.preamp_db);
+  set_auto_preamp(p.auto_preamp);
+  set_limiter_ceiling_db(p.limiter_ceiling_db);
+  set_bypass(Block::Limiter, !p.limiter_enabled);
+  BandParams off;
+  off.enabled = false;
+  for (int i = 0; i < kMaxBands; ++i) set_band(i, i < static_cast<int>(p.bands.size()) ? p.bands[i] : off);
+}
+
 double Engine::eq_response_db(double freq) const { return mirror_->response_db(freq); }
 
 void Engine::update_preamp() {
