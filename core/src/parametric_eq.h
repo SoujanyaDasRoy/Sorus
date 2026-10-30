@@ -1,0 +1,34 @@
+#pragma once
+
+#include <array>
+#include <vector>
+
+#include "band.h"
+#include "params.h"
+
+namespace sorus {
+
+// 32 bands with per-band channel routing: Stereo -> every channel, Left/Right -> ch 0/1,
+// Mid/Side -> M=(L+R)/2, S=(L-R)/2 of ch 0/1 (decoded back afterwards). With a single channel
+// L/R/M/S bands act as Stereo. No internal threading: the engine keeps a separate control-side
+// instance for response_db/peak_boost_db.
+class ParametricEq {
+ public:
+  ParametricEq();  // all bands start disabled
+  void prepare(double sample_rate, int max_frames, int channels);  // allocates; resets all state
+  void set_band(int index, const BandParams& p);                   // audio thread: no alloc
+  void process(float* const* ch, int channels, int frames);        // audio thread: no alloc
+  double response_db(double freq) const;  // sum of enabled bands; control thread only
+  double peak_boost_db() const;           // max(0, max response over 10 Hz-22 kHz); control thread only
+
+ private:
+  void run(float* const* ch, int channels, int frames);
+
+  double sr_ = 48000;
+  int max_frames_ = 0;
+  std::array<Band, kMaxBands> bands_;
+  std::array<BandParams, kMaxBands> params_;
+  std::vector<float> mid_, side_;
+};
+
+}  // namespace sorus
