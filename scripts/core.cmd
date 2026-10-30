@@ -1,7 +1,9 @@
 @echo off
 rem Configure, build and test the core engine. Extra args go to ctest, e.g.: scripts\core.cmd -R clamp
 rem Build output lives outside OneDrive so sync never locks build files.
-for /f "usebackq delims=" %%i in (`"%ProgramFiles(x86)%\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -property installationPath`) do set "VS=%%i"
+rem vcvars itself calls vswhere.exe from PATH.
+set "PATH=%ProgramFiles(x86)%\Microsoft Visual Studio\Installer;%PATH%"
+for /f "usebackq delims=" %%i in (`vswhere.exe -latest -products * -property installationPath`) do set "VS=%%i"
 call "%VS%\VC\Auxiliary\Build\vcvars64.bat" >nul || exit /b 1
 set "PATH=%ProgramFiles%\CMake\bin;%PATH%"
 set "B=%USERPROFILE%\build\sorus\core"
