@@ -36,3 +36,10 @@ target_include_directories(sorus_tests PRIVATE src tests)
 target_link_libraries(sorus_tests PRIVATE sorus_core doctest::doctest)
 sorus_warnings(sorus_tests)
 doctest_discover_tests(sorus_tests)
+
+# Counts global operator new, so it gets its own binary and doctest main.
+add_executable(sorus_no_alloc_test tests/test_no_alloc.cpp)
+target_include_directories(sorus_no_alloc_test PRIVATE src tests)
+target_link_libraries(sorus_no_alloc_test PRIVATE sorus_core doctest::doctest)
+sorus_warnings(sorus_no_alloc_test)
+doctest_discover_tests(sorus_no_alloc_test)
