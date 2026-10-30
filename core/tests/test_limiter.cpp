@@ -88,3 +88,37 @@ TEST_CASE("limiter detector skip is exact") {
   }
   CHECK(true_peak_db(y) <= -1.0 + 0.2);
 }
+
+// Worst cases for that skip: 32-sample bursts matched to the half-sample phase (the largest sum|h|), so the
+// interpolated peak is amp * sum|h|. 1-frame blocks pin the window edge per step; 77-frame blocks put the
+// bursts at shifting offsets against block and detection-chunk edges.
+TEST_CASE("limiter skip bound and window hold on matched bursts") {
+  constexpr int kTaps = TruePeakLimiter::kTaps, half = kTaps / 2;
+  double h[kTaps], sum = 0, bound = 0;
+  for (int j = 0; j < kTaps; ++j) {
+    const double d = 0.5 - (j - half + 1);
+    sum += h[j] = std::sin(std::numbers::pi * d) / (std::numbers::pi * d) * 0.5 * (1 + std::cos(std::numbers::pi * d / half));
+  }
+  for (double v : h) bound += std::abs(v / sum);
+  const double skip_below = 0.89125093813374556 / bound;  // -1 dBTP default ceiling / sum|h|
+  std::vector<float> in(48000, 0.f);
+  for (int b = 0, pos = 1000; b < 24; ++b, pos += 400 + b % 7 * 13) {
+    // Even: every sample 5% over the skip threshold, true peak +0.4 dB over the ceiling: the bound must hold.
+    // Odd: loud first half, second half just under the threshold, so the window that sees the peak holds its
+    // last loud sample 16 steps back: detection must stay on for the whole window.
+    for (int j = 0; j < kTaps; ++j) {
+      const double amp = b % 2 == 0 ? 1.05 * skip_below : j < half ? 0.6 : 0.95 * skip_below;
+      in[pos + j] = static_cast<float>(h[j] > 0 ? amp : -amp);
+    }
+  }
+  for (int block : {1, 77}) {
+    CAPTURE(block);
+    auto x = in;
+    TruePeakLimiter l; l.prepare(48000, block, 1);
+    for (int pos = 0; pos < 48000; pos += block) {
+      float* c[1] = {x.data() + pos};
+      l.process(c, 1, std::min(block, 48000 - pos));
+    }
+    CHECK(true_peak_db(x) <= -1.0 + 0.2);
+  }
+}

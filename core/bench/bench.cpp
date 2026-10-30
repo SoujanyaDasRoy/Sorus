@@ -1,6 +1,7 @@
 // Performance gate for the v1 chain. Prints "<case> realtime_fraction=<x>" per case; exit 1 if a gate fails.
 //   full:  48 kHz stereo, 32 bells, limiter on, 60 s of noise.        Gate: realtime_fraction < 0.01.
 //   decay: same chain, 1 s of loud noise then 59 s of silence.       Gate: decay time <= 1.5 x full time.
+//   loud:  same chain, the full-case noise x4 (true-peak detector busy). Gate: realtime_fraction < 0.01.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -26,12 +27,12 @@ void configure(sorus::Engine& e) {
   }
 }
 
-std::vector<float> noise(int loud_frames) {
+std::vector<float> noise(int loud_frames, float scale = 1) {
   std::vector<float> x(static_cast<size_t>(kFrames) * kChannels, 0.0f);
   uint32_t s = 1;
   for (size_t i = 0; i < static_cast<size_t>(loud_frames) * kChannels; ++i) {
     s = s * 1664525u + 1013904223u;
-    x[i] = static_cast<float>((s >> 8) / 16777216.0 - 0.5);
+    x[i] = scale * static_cast<float>((s >> 8) / 16777216.0 - 0.5);
   }
   return x;
 }
@@ -56,10 +57,13 @@ double time_chain(const std::vector<float>& input) {
 int main() {
   const double full = time_chain(noise(kFrames));
   const double decay = time_chain(noise(static_cast<int>(kRate)));
+  const double loud = time_chain(noise(kFrames, 4));
   std::printf("full realtime_fraction=%.5f\n", full / kSeconds);
   std::printf("decay realtime_fraction=%.5f\n", decay / kSeconds);
+  std::printf("loud realtime_fraction=%.5f\n", loud / kSeconds);
   bool ok = true;
   if (full / kSeconds >= 0.01) { std::printf("FAIL full: >= 0.01 of realtime\n"); ok = false; }
   if (decay > 1.5 * full) { std::printf("FAIL decay: %.2fx full time (denormals?)\n", decay / full); ok = false; }
+  if (loud / kSeconds >= 0.01) { std::printf("FAIL loud: >= 0.01 of realtime\n"); ok = false; }
   return ok ? 0 : 1;
 }

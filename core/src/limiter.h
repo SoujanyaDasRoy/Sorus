@@ -33,11 +33,17 @@ class TruePeakLimiter {
   void process(float* const* ch, int channels, int frames);  // audio thread: no alloc
 
  private:
-  // Fractional phases folded by mirror symmetry (phase 8-k == phase k reversed), tap-major so one tap's
-  // lanes sit side by side: for j < 16, h_[j][k-1] = (h_k[j] + h_k[31-j]) / 2 (k = 1..4) applies to
-  // x[j] + x[31-j], and h_[j][3+k] = (h_k[j] - h_k[31-j]) / 2 (k = 1..3) to x[j] - x[31-j]; lane 7 is 0.
+  static constexpr int kChunk = 64;  // samples per detection pass; a multiple of 4 (detect() step)
+  // Raises peak[0..n) to the true peak of each of the next n steps (their samples already in the ring);
+  // writes up to round_up(n, 4) entries.
+  void detect(float* peak, int channels, int n) const;
+
+  // Fractional phases folded by mirror symmetry (phase 8-k == phase k reversed): for j < 16,
+  // h_[j][k-1] = (h_k[j] + h_k[31-j]) / 2 (k = 1..4) applies to x[j] + x[31-j], and
+  // h_[j][3+k] = (h_k[j] - h_k[31-j]) / 2 (k = 1..3) to x[j] - x[31-j]. Each is stored 4 times, ready
+  // to load as one vector for the 4 steps of a detect() pass.
   // Phase 0 is the sample itself and is read directly.
-  float h_[kTaps / 2][kOver] = {};
+  float h_[kTaps / 2][kOver - 1][4] = {};
   // max_k sum_j |h_k[j]| (+ margin for float rounding): while every sample in the detector window has
   // |x| * quiet_ below the ceiling, no phase can exceed it, so detection is skipped with the same result.
   double quiet_ = 1;
@@ -46,9 +52,9 @@ class TruePeakLimiter {
   double ceiling_alpha_ = 1, release_alpha_ = 1, gain_ = 1;
   int latency_ = 0, hold_ = 1, box_ = 1, mask_ = 0;
   int64_t n_ = 0;     // samples processed: sliding-min timestamps
-  int64_t loud_ = 0;  // last sample that failed the quiet_ test: detection runs while it is in the window
-  // Input history = detector taps + audio delay, stored twice (r[i] == r[i + size]) so the detector
-  // window is always contiguous.
+  int64_t loud_ = 0;  // last sample that failed the quiet_ test: detection runs while it is in a window
+  // Input history = detector taps + audio delay + one chunk, stored twice (r[i] == r[i + size]) so the
+  // detector windows of a chunk are contiguous.
   std::array<std::vector<float>, kMaxChannels> ring_;
   int pos_ = 0;
   // Sliding min (monotonic deque) over `hold_` required gains.
