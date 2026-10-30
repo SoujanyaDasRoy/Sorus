@@ -1,0 +1,33 @@
+name: core
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            gate: true    # MSVC; bench gate enforced
+            cmake_args: ""
+          - os: ubuntu-latest
+            gate: false   # shared runners are noisy: bench numbers printed only
+            cmake_args: "-DCMAKE_CXX_COMPILER=clang++"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S core -B build -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_args }}
+      - name: Build
+        run: cmake --build build --config Release --parallel
+      - name: Test
+        run: ctest --test-dir build -C Release --output-on-failure
+      - name: Bench
+        shell: bash
+        continue-on-error: ${{ !matrix.gate }}
+        run: |
+          bench=$(find build -name 'sorus_bench' -o -name 'sorus_bench.exe' | head -n 1)
+          "$bench"
