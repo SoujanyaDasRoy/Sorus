@@ -23,6 +23,7 @@ class Band {
   void set(const BandParams& p);
   void reset();
   void process(float* buf, int frames, int slot);  // audio thread: no alloc, no locks
+  bool settled(int slot) const { return slots_[slot].bypassed; }  // disabled and glided to pass-through
 
  private:
   struct Slot {

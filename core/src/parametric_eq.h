@@ -23,11 +23,17 @@ class ParametricEq {
 
  private:
   void run(float* const* ch, int channels, int frames);
+  bool settled(int i, int channels) const;  // routed slots of band i are at pass-through
+  void commit_mode(int i);                  // finish a pending mode switch from clean state
 
   double sr_ = 48000;
   int max_frames_ = 0;
   std::array<Band, kMaxBands> bands_;
-  std::array<BandParams, kMaxBands> params_;
+  std::array<BandParams, kMaxBands> params_;  // requested (control view)
+  std::array<BandParams, kMaxBands> given_;   // last params handed to the Band (audio view)
+  std::array<ChannelMode, kMaxBands> mode_{};   // mode currently routed; lags params_ during a glide
+  std::array<bool, kMaxBands> pending_{};       // mode switch waiting for the band to glide out
+  int channels_ = 2;
   std::vector<float> mid_, side_;
 };
 

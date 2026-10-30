@@ -64,3 +64,25 @@ TEST_CASE("peak boost of stacked bells") {
   p.gain_db = -6; eq.set_band(0, p); eq.set_band(1, p);
   CHECK(eq.peak_boost_db() == 0);
 }
+TEST_CASE("mode change does not click") {
+  ParametricEq eq; eq.prepare(48000, 48000, 2);
+  BandParams p; p.gain_db = 12; p.q = 1; p.mode = ChannelMode::Left; eq.set_band(0, p);
+  const int n1 = 24012, n2 = 48000;
+  auto l = sine(1000, 48000, n1 + n2, 0.5f);
+  auto r = l;
+  float* ch[2] = {l.data(), r.data()};
+  eq.process(ch, 2, n1);
+  p.mode = ChannelMode::Right; eq.set_band(0, p);
+  float* ch2[2] = {l.data() + n1, r.data() + n1};
+  eq.process(ch2, 2, n2);
+  const double steady = 2 * std::numbers::pi * 1000 / 48000 * 0.5 * std::pow(10, 12 / 20.0);
+  double worst_l = 0, worst_r = 0;
+  for (int i = 1; i < n1 + n2; ++i) {
+    worst_l = std::max(worst_l, (double)std::abs(l[i] - l[i - 1]));
+    worst_r = std::max(worst_r, (double)std::abs(r[i] - r[i - 1]));
+  }
+  CHECK(worst_l <= 1.2 * steady);
+  CHECK(worst_r <= 1.2 * steady);
+  const auto g = gains(eq, 2, 1000);  // band has long since glided in on the right
+  CHECK(std::abs(g[0]) < 0.1); CHECK(std::abs(g[1] - 12) < 0.1);
+}
