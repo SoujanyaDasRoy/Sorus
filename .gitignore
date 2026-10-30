@@ -1,0 +1,7 @@
+build/
+.vs/
+*.user
+.idea/
+local.properties
+.gradle/
+.superpowers/
