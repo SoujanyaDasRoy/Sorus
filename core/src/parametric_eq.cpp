@@ -77,6 +77,10 @@ void ParametricEq::set_band(int index, const BandParams& p) {
   }  // else: switch already pending, params_ holds the latest request
 }
 
+void ParametricEq::restart() {
+  for (int i = 0; i < kMaxBands; ++i) commit_mode(i);
+}
+
 void ParametricEq::process(float* const* ch, int channels, int frames) {
   channels = std::min(channels, kMaxChannels);
   if (channels <= 0 || max_frames_ <= 0) return;

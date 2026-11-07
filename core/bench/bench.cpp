@@ -4,6 +4,7 @@
 //   loud:   same chain, the full-case noise x4 (true-peak detector busy). Gate: realtime_fraction < 0.01.
 //   reload: `full` plus Engine::load(identical preset) every 2048 frames; only the audio calls are timed.
 //           Gate: realtime_fraction < 0.01. Also prints the mean control-side load time.
+//   bypassed: `full` with EQ and limiter bypassed (settled bypass should cost next to nothing). No gate.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -46,13 +47,18 @@ double seconds(Clock::time_point t0) { return std::chrono::duration<double>(Cloc
 
 // Best of 3 runs, each on a fresh copy of `input`; returns seconds of audio work. With `reload`, the
 // identical preset is loaded every kReloadEvery frames (untimed; mean load time in *load_s).
-double time_chain(const std::vector<float>& input, bool reload = false, double* load_s = nullptr) {
+double time_chain(const std::vector<float>& input, bool reload = false, double* load_s = nullptr,
+                  bool bypass = false) {
   sorus::Preset preset;
   for (int i = 0; i < sorus::kMaxBands; ++i) preset.bands.push_back(band(i));
   double best = 1e9;
   for (int run = 0; run < 3; ++run) {
     sorus::Engine e(kRate, kBlock, kChannels);
     configure(e);
+    if (bypass) {
+      e.set_bypass(sorus::Block::Eq, true);
+      e.set_bypass(sorus::Block::Limiter, true);
+    }
     std::vector<float> buf = input;
     double audio = 0, loads = 0;
     int n_loads = 0;
@@ -85,10 +91,12 @@ int main() {
   const double loud = time_chain(noise(kFrames, 4));
   double load_s = 0;
   const double reload = time_chain(input, true, &load_s);
+  const double bypassed = time_chain(input, false, nullptr, true);
   std::printf("full realtime_fraction=%.5f\n", full / kSeconds);
   std::printf("decay realtime_fraction=%.5f\n", decay / kSeconds);
   std::printf("loud realtime_fraction=%.5f\n", loud / kSeconds);
   std::printf("reload realtime_fraction=%.5f (load %.3f ms)\n", reload / kSeconds, load_s * 1e3);
+  std::printf("bypassed realtime_fraction=%.5f\n", bypassed / kSeconds);
   bool ok = true;
   if (full / kSeconds >= 0.01) { std::printf("FAIL full: >= 0.01 of realtime\n"); ok = false; }
   if (decay > 1.5 * full) { std::printf("FAIL decay: %.2fx full time (denormals?)\n", decay / full); ok = false; }

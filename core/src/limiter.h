@@ -31,6 +31,9 @@ class TruePeakLimiter {
   void set_ceiling_db(double db);  // audio thread safe
   int latency_frames() const { return latency_; }
   void process(float* const* ch, int channels, int frames);  // audio thread: no alloc
+  // Bypassed: only writes the input history (no detection, no gain, ch untouched), so process() can resume
+  // aligned. The gain computer restarts at unity. Audio thread: no alloc.
+  void skip(const float* const* ch, int channels, int frames);
 
  private:
   static constexpr int kChunk = 64;  // samples per detection pass; a multiple of 4 (detect() step)

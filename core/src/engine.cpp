@@ -171,10 +171,17 @@ void Engine::run(int n) {
     const float g = static_cast<float>(gain_.next());
     for (int c = 0; c < nc; ++c) dry_[c][i] = ch[c][i] *= g;
   }
-  eq_->process(ch, nc, n);
-  for (int i = 0; i < n; ++i) {
-    const float m = static_cast<float>(eq_mix_.next());
-    for (int c = 0; c < nc; ++c) ch[c][i] = ch[c][i] * m + dry_[c][i] * (1 - m);
+  // A settled bypass skips the EQ (ch already is the dry signal); it comes back from clean state.
+  if (eq_mix_.off()) {
+    eq_idle_ = true;
+  } else {
+    if (eq_idle_) eq_->restart();
+    eq_idle_ = false;
+    eq_->process(ch, nc, n);
+    for (int i = 0; i < n; ++i) {
+      const float m = static_cast<float>(eq_mix_.next());
+      for (int c = 0; c < nc; ++c) ch[c][i] = ch[c][i] * m + dry_[c][i] * (1 - m);
+    }
   }
 
   // Limiter dry path: the input delayed by exactly the limiter latency.
@@ -185,6 +192,11 @@ void Engine::run(int n) {
       slot = ch[c][i];
     }
     if (++delay_pos_ == latency_) delay_pos_ = 0;
+  }
+  if (lim_mix_.off()) {  // settled bypass: the limiter only keeps its input history current
+    lim_.skip(ch, nc, n);
+    for (int c = 0; c < nc; ++c) std::copy(dry_[c].data(), dry_[c].data() + n, ch[c]);
+    return;
   }
   lim_.process(ch, nc, n);
   for (int i = 0; i < n; ++i) {

@@ -148,6 +148,28 @@ void TruePeakLimiter::detect(float* peak, int channels, int n) const {
   }
 }
 
+void TruePeakLimiter::skip(const float* const* ch, int channels, int frames) {
+  channels = std::clamp(channels, 0, kMaxChannels);
+  if (channels == 0 || box_v_.empty() || frames <= 0) return;
+  const int size = mask_ + 1;
+  for (int c = 0; c < channels; ++c) {
+    float* r = ring_[static_cast<size_t>(c)].data();
+    for (int i = 0; i < frames; ++i) {
+      const int p = (pos_ + i) & mask_;
+      r[p] = r[p + size] = ch[c][i];
+    }
+  }
+  pos_ = (pos_ + frames) & mask_;
+  n_ += frames;
+  loud_ = n_;  // none of the window was quiet-tested: detect until it has all been seen
+  dq_head_ = dq_size_ = 0;
+  std::fill(box_v_.begin(), box_v_.end(), 0.0);
+  box_sum_ = 0;
+  box_pos_ = box_nonzero_ = 0;
+  gain_ = 1;
+  ceiling_ = target_;
+}
+
 void TruePeakLimiter::process(float* const* ch, int channels, int frames) {
   channels = std::clamp(channels, 0, kMaxChannels);
   if (channels == 0 || box_v_.empty()) return;

@@ -20,6 +20,8 @@ enum class Block { Eq, Limiter };
 // The audio thread drains the commands at the start of process_interleaved, so every call into the
 // audio-side EQ and limiter happens on the audio thread. Preamp and bypass changes glide over 10 ms.
 // Latency is always the limiter's: a bypassed limiter is replaced by a delay line of the same length.
+// A block whose bypass glide has settled costs nothing: the EQ is skipped and restarts from clean state
+// (bands gliding in) when un-bypassed; the limiter only keeps its input history current.
 class Engine {
  public:
   // Allocates. channels clamped to [1, kMaxChannels], max_frames to >= 1.
@@ -61,6 +63,7 @@ class Engine {
       if (left > 0) cur = --left ? cur + inc : target;
       return cur;
     }
+    bool off() const { return left == 0 && cur == 0; }  // settled at 0: block bypassed
   };
 
   bool stage_band(int index, const BandParams& p);  // control: mirror + dirty; false if unchanged/out of range
@@ -87,6 +90,7 @@ class Engine {
   Ramp gain_{1}, eq_mix_{1}, lim_mix_{1};  // linear gain; 1 = block active, 0 = bypassed
   std::array<std::vector<float>, kMaxChannels> buf_, dry_, delay_;
   int delay_pos_ = 0;
+  bool eq_idle_ = false;  // EQ skipped since its bypass settled: restart it when it comes back
 };
 
 }  // namespace sorus

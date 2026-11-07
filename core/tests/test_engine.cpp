@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <numbers>
 #include <vector>
 
 #include "denormals.h"
@@ -201,4 +202,62 @@ TEST_CASE("reloading an identical preset leaves the audio untouched") {
   int diff = 0;
   for (int i = 0; i < 2 * n; ++i) diff += ya[i] != yb[i];
   CHECK(diff == 0);
+}
+
+// Settled-bypassed blocks do no work: even an EQ whose output would overflow float leaves the signal alone,
+// and the output is the input delayed by latency_frames(), bit for bit.
+TEST_CASE("bypassed blocks are skipped and the output is the delayed input") {
+  Engine e(48000, 512, 2); e.set_auto_preamp(false);
+  e.set_bypass(Block::Eq, true); e.set_bypass(Block::Limiter, true);
+  constexpr int n = 9600;
+  const int lat = e.latency_frames();
+  const auto x = sine(1000, 48000, n, 1.5f);  // over the ceiling too
+  std::vector<float> warm(2 * 4800, 0.1f);
+  e.process_interleaved(warm.data(), 4800);  // bypass glides settle
+  BandParams p; p.gain_db = 24; p.q = 1;
+  for (int i = 0; i < kMaxBands; ++i) e.set_band(i, p);
+  std::vector<float> buf(2 * n);
+  for (int i = 0; i < n; ++i) buf[2 * i] = buf[2 * i + 1] = x[i];
+  e.process_interleaved(buf.data(), n);
+  for (int i = lat; i < n; ++i)
+    for (int c = 0; c < 2; ++c) REQUIRE(buf[2 * i + c] == x[i - lat]);
+}
+
+// Un-bypassing an EQ that sat idle restarts it from clean state and glides the bands in: no click, even when
+// the state it froze with (loud) no longer matches the signal (quiet).
+TEST_CASE("un-bypassing the EQ does not click") {
+  Engine e(48000, 512, 2); e.set_auto_preamp(false);
+  BandParams p; p.gain_db = 12; p.q = 4; e.set_band(0, p);
+  constexpr int quiet_from = 24000, unbypass = 36012, n = 48000;  // un-bypass on a sine peak
+  constexpr float loud = 0.2f, quiet = 0.002f;                    // +12 dB of loud: under the ceiling
+  const auto x = sine(1000, 48000, n);
+  std::vector<float> buf(2 * n);
+  for (int i = 0; i < n; ++i) buf[2 * i] = buf[2 * i + 1] = x[i] / 0.25f * (i < quiet_from ? loud : quiet);
+  e.process_interleaved(buf.data(), 12000);
+  e.set_bypass(Block::Eq, true);
+  e.process_interleaved(buf.data() + 2 * 12000, unbypass - 12000);
+  e.set_bypass(Block::Eq, false);
+  e.process_interleaved(buf.data() + 2 * unbypass, n - unbypass);
+  const double steady = 2 * std::numbers::pi * 1000 / 48000 * quiet * std::pow(10, 12 / 20.0);
+  double worst = 0;  // from well after the level drop (plus latency)
+  for (int i = quiet_from + 1000; i < n; ++i) worst = std::max(worst, static_cast<double>(std::abs(buf[2 * i] - buf[2 * i - 2])));
+  CHECK(worst <= 1.2 * steady);
+}
+
+// Un-bypassing the limiter after it sat idle: once its release has settled it matches a limiter that never stopped.
+TEST_CASE("un-bypassed limiter limits again") {
+  Engine e(48000, 512, 2), ref(48000, 512, 2);
+  e.set_bypass(Block::Limiter, true);
+  std::vector<float> a(2 * 4800, 0.1f), b = a;
+  e.process_interleaved(a.data(), 4800);
+  ref.process_interleaved(b.data(), 4800);
+  e.set_bypass(Block::Limiter, false);
+  constexpr int n = 48000;
+  const auto x = sine(997, 48000, n, 2.0f);
+  std::vector<float> y(2 * n);
+  for (int i = 0; i < n; ++i) y[2 * i] = y[2 * i + 1] = x[i];
+  auto z = y;
+  e.process_interleaved(y.data(), n);
+  ref.process_interleaved(z.data(), n);
+  for (int i = n; i < 2 * n; ++i) REQUIRE(std::abs(y[i] - z[i]) < 1e-4);
 }
