@@ -44,6 +44,15 @@ target_link_libraries(sorus_no_alloc_test PRIVATE sorus_core doctest::doctest)
 sorus_warnings(sorus_no_alloc_test)
 doctest_discover_tests(sorus_no_alloc_test)
 
+# doctest 2.4.x vs newer toolchains: its std forward declarations trip MSVC C5285, and under clang it always
+# includes <ciso646>, which libstdc++ 15 #warns about in C++20.
+foreach(t sorus_tests sorus_no_alloc_test)
+  target_compile_definitions(${t} PRIVATE DOCTEST_CONFIG_USE_STD_HEADERS)
+  if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_compile_options(${t} PRIVATE "-Wno-#warnings")
+  endif()
+endforeach()
+
 add_executable(sorus_bench bench/bench.cpp)
 target_include_directories(sorus_bench PRIVATE src)
 target_link_libraries(sorus_bench PRIVATE sorus_core)
