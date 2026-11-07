@@ -8,6 +8,10 @@
 
 namespace sorus {
 
+namespace {
+constexpr float kMaxIn = 1000;  // +60 dBFS input clamp: preamp + EQ stay inside float range for sane settings
+}  // namespace
+
 Engine::Engine(double sample_rate, int max_frames, int channels)
     : max_frames_(std::max(max_frames, 1)),
       channels_(std::clamp(channels, 1, kMaxChannels)),
@@ -127,11 +131,14 @@ void Engine::process_interleaved(float* data, int frames) {
     for (int i = 0; i < n; ++i)
       for (int ch = 0; ch < nc; ++ch) {
         const float v = io[i * nc + ch];
-        buf_[ch][i] = std::isfinite(v) ? v : 0.f;
+        buf_[ch][i] = std::isfinite(v) ? std::clamp(v, -kMaxIn, kMaxIn) : 0.f;
       }
     run(n);
     for (int i = 0; i < n; ++i)
-      for (int ch = 0; ch < nc; ++ch) io[i * nc + ch] = buf_[ch][i];
+      for (int ch = 0; ch < nc; ++ch) {
+        const float v = buf_[ch][i];  // extreme EQ settings can overflow float: never emit inf/NaN
+        io[i * nc + ch] = std::isfinite(v) ? v : 0.f;
+      }
     done += n;
   }
 }

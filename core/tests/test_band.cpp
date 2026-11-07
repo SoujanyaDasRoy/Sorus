@@ -111,3 +111,10 @@ TEST_CASE("disabled band settles to unity") {
   toggled(b, true, false);
   CHECK(std::abs(measure_gain_db([&](float* x, int n) { b.process(x, n, 0); }, 48000, 1000)) < 0.01);
 }
+TEST_CASE("band state recovers from an overflowing input") {
+  BandParams p; p.gain_db = 6; p.q = 1;
+  Band b; b.prepare(48000); b.set(p);
+  std::vector<float> hit(64, 0.f); hit[3] = INFINITY;
+  b.process(hit.data(), 64, 0);
+  CHECK(std::abs(measure_gain_db([&](float* x, int n) { b.process(x, n, 0); }, 48000, 1000) - 6) < 0.05);
+}

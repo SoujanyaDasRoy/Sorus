@@ -40,6 +40,7 @@ class Band {
     bool bypassed = false;  // settled at pass-through: process skips the slot
     bool steady = false;    // settled at the target: runs steady_, no smoothing (implies !bypassed)
     void clear_state();
+    void heal(int live);  // clears the state if an overflowing input made it non-finite
   };
   void glide(Slot& st, float* buf, int frames);
   template <int N>  // N slots in lockstep: N independent recurrences overlap in the pipeline

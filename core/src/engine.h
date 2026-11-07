@@ -14,7 +14,8 @@ namespace sorus {
 
 enum class Block { Eq, Limiter };
 
-// Chain: sanitize (non-finite -> 0) -> preamp -> EQ -> limiter. Two threads:
+// Chain: sanitize (non-finite -> 0, finite clamped to +-1000) -> preamp -> EQ -> limiter -> non-finite -> 0
+// (extreme EQ settings can still overflow float). Two threads:
 // control thread calls the setters and queries; they update control-side state and push commands.
 // The audio thread drains the commands at the start of process_interleaved, so every call into the
 // audio-side EQ and limiter happens on the audio thread. Preamp and bypass changes glide over 10 ms.

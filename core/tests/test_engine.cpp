@@ -52,6 +52,33 @@ TEST_CASE("non-finite input is sanitized") {
   for (float v : buf) REQUIRE(std::isfinite(v));
   CHECK(std::abs(engine_gain_db(e, 0, 1000)) < 0.1);
 }
+// A huge finite sample times a positive preamp overflows float; the EQ state must not stay poisoned.
+TEST_CASE("huge finite input does not poison the EQ") {
+  Engine e(48000, 512, 2); e.set_auto_preamp(false); e.set_preamp_db(6);
+  BandParams p; p.gain_db = 3; p.q = 1; e.set_band(0, p);
+  std::vector<float> buf(1024, 0.1f);
+  e.process_interleaved(buf.data(), 512);  // preamp ramp lands on +6 dB
+  std::fill(buf.begin(), buf.end(), 0.1f); buf[10] = 3e38f; buf[11] = -3e38f;
+  e.process_interleaved(buf.data(), 512);
+  for (int i = 0; i < 100; ++i) {
+    for (float v : buf) REQUIRE(std::isfinite(v));
+    std::fill(buf.begin(), buf.end(), 0.1f);
+    e.process_interleaved(buf.data(), 512);
+  }
+  CHECK(std::abs(engine_gain_db(e, 0, 1000) - 9) < 0.1);
+}
+// Stacked +24 dB bells with +24 dB preamp overflow float inside the EQ: output must still be finite.
+TEST_CASE("engine output is always finite") {
+  Engine e(48000, 512, 2); e.set_auto_preamp(false); e.set_preamp_db(24);
+  BandParams p; p.gain_db = 24; p.q = 1;
+  for (int i = 0; i < kMaxBands; ++i) e.set_band(i, p);
+  const auto x = sine(1000, 48000, 4800);
+  std::vector<float> buf(2 * 4800);
+  for (int i = 0; i < 4800; ++i) buf[2 * i] = buf[2 * i + 1] = x[i];
+  buf[100] = 3e38f;
+  e.process_interleaved(buf.data(), 4800);
+  for (float v : buf) REQUIRE(std::isfinite(v));
+}
 TEST_CASE("blocks larger than max_frames") {
   Engine big(48000, 4096, 2), small(48000, 256, 2);
   auto mono = sine(440, 48000, 4096);

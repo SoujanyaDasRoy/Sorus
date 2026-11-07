@@ -137,20 +137,27 @@ void Band::set(const BandParams& raw) {
   }
 }
 
+void Band::Slot::heal(int live) {
+  for (int j = 0; j < live; ++j)
+    if (!std::isfinite(ic1[j]) || !std::isfinite(ic2[j])) return clear_state();
+}
+
 void Band::process(float* buf, int frames, int slot) {
   assert(slot >= 0 && slot < kMaxSlots);
   Slot& st = slots_[slot];
   if (st.bypassed) return;
   if (st.steady) {
     Slot* s[1] = {&st};
-    return run_steady<1>(s, &buf, frames);
+    run_steady<1>(s, &buf, frames);
+  } else {
+    glide(st, buf, frames);
+    if ((st.settle -= frames) <= 0) {  // within e^-20 of the target: snap and stop smoothing
+      std::copy(std::begin(target_), std::end(target_), std::begin(st.cur));
+      st.bypassed = !enabled_;  // mix has reached pass-through: stop ticking
+      st.steady = enabled_;
+    }
   }
-  glide(st, buf, frames);
-  if ((st.settle -= frames) <= 0) {  // within e^-20 of the target: snap and stop smoothing
-    std::copy(std::begin(target_), std::end(target_), std::begin(st.cur));
-    st.bypassed = !enabled_;  // mix has reached pass-through: stop ticking
-    st.steady = enabled_;
-  }
+  st.heal(live_);
 }
 
 void Band::process(float* const* bufs, int count, int frames) {
@@ -160,6 +167,8 @@ void Band::process(float* const* bufs, int count, int frames) {
     if (slots_[s].steady && slots_[s + 1].steady) {
       Slot* st[2] = {&slots_[s], &slots_[s + 1]};
       run_steady<2>(st, bufs + s, frames);
+      st[0]->heal(live_);
+      st[1]->heal(live_);
     } else {
       process(bufs[s], frames, s);
       process(bufs[s + 1], frames, s + 1);
