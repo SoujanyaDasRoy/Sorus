@@ -130,7 +130,7 @@ double ParametricEq::response_db(double freq) const {
   double sum = 0;
   for (const auto& p : params_)
     if (p.enabled) sum += sorus::response_db(p, freq, sr_);
-  return sum;
+  return std::max(kFloorDb, sum);
 }
 
 double ParametricEq::peak_boost_db() const {

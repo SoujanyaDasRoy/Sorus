@@ -129,3 +129,13 @@ TEST_CASE("editing a disabled gliding band does not extend its glide") {
   b.process(x.data(), 5000, 0);  // 10000 samples since disable > 0.2 s
   CHECK(b.settled(0));
 }
+TEST_CASE("response_db is finite and floored at -200 dB") {
+  BandParams notch; notch.type = FilterType::Notch; notch.freq = 1000;
+  BandParams hp; hp.type = FilterType::HighPass; hp.freq = 100;
+  for (double f : {1000.0, 0.0, -5.0, double(NAN), double(INFINITY), 30000.0})
+    for (const BandParams& p : {notch, hp}) {
+      const double v = response_db(p, f, 48000);
+      CAPTURE(f); CAPTURE(v);
+      CHECK(std::isfinite(v)); CHECK(v >= -200);
+    }
+}

@@ -18,7 +18,7 @@ class ParametricEq {
   void prepare(double sample_rate, int max_frames, int channels);  // allocates; resets all state
   void set_band(int index, const BandParams& p);  // audio thread: no alloc; unchanged (after clamp): no-op
   void process(float* const* ch, int channels, int frames);        // audio thread: no alloc
-  double response_db(double freq) const;  // sum of enabled bands; control thread only
+  double response_db(double freq) const;  // sum of enabled bands, floored at kFloorDb; control thread only
   // max(0, max response over 10 Hz-min(22 kHz, 0.45 sr) and at each enabled band freq); control thread only
   double peak_boost_db() const;
 

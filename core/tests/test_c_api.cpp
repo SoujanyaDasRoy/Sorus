@@ -1,5 +1,6 @@
 #include <doctest/doctest.h>
 
+#include <cmath>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -30,5 +31,21 @@ TEST_CASE("c api loads preset and reports response") {
   std::vector<float> buf(1024, 0.1f); sorus_process(e, buf.data(), 512);
   CHECK(sorus_flush(e) == 1);  // nothing pending after a drain
   CHECK(sorus_latency_frames(e) > 0);
+  sorus_destroy(e);
+}
+
+TEST_CASE("c api response is finite and floored") {
+  SorusEngine* e = sorus_create(48000, 512, 2);
+  const char* json = R"({"sorus_preset":1,"eq":[{"type":"notch","freq":1000,"q":1},{"type":"notch","freq":1000,"q":2},)"
+                     R"({"type":"high_pass","freq":100}]})";
+  REQUIRE(sorus_load_preset(e, json, strlen(json)) == 0);
+  const double f[] = {1000, 0, -5, NAN, INFINITY, 30000, 24000};  // notch centre, HP at DC, junk, above Nyquist
+  double db[7];
+  CHECK(sorus_eq_response_db(e, f, db, 7) == 0);
+  for (double v : db) {
+    CAPTURE(v);
+    CHECK(std::isfinite(v));
+    CHECK(v >= -200);
+  }
   sorus_destroy(e);
 }

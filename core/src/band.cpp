@@ -67,6 +67,7 @@ double response_db(const BandParams& raw, double freq, double sample_rate) {
   SvfSection sec[Band::kMaxSections];
   const int n = design(p, sample_rate, sec);
   // Trapezoidal SVF == bilinear transform: z = e^{jw} maps to analog s = j*tan(w/2)/g.
+  freq = std::isnan(freq) ? 0 : std::clamp(freq, 0.0, 0.5 * sample_rate);  // no aliasing; NaN reads as DC
   const double t = std::tan(pi * freq / sample_rate);
   std::complex<double> h = 1;
   for (int i = 0; i < n; ++i) {
@@ -74,7 +75,7 @@ double response_db(const BandParams& raw, double freq, double sample_rate) {
     const std::complex<double> s(0, t / c.g), d = s * s + c.k * s + 1.0;
     h *= c.m0 + (c.m1 * s + c.m2) / d;
   }
-  return 20 * std::log10(std::abs(h));
+  return std::max(kFloorDb, 20 * std::log10(std::abs(h)));  // a notch at its centre is exactly -inf
 }
 
 void Band::prepare(double sample_rate) {

@@ -4,7 +4,9 @@
 
 namespace sorus {
 
-// Exact magnitude (dB) of what Band does with `p` at `freq`; 0 for a disabled band.
+// Exact magnitude (dB) of what Band does with `p` at `freq`; 0 for a disabled band. freq is clamped to
+// [0, sample_rate / 2] (NaN reads as 0); the result is finite and floored at kFloorDb.
+constexpr double kFloorDb = -200;
 double response_db(const BandParams& p, double freq, double sample_rate);
 
 // One Cytomic trapezoidal SVF section: y = m0*v0 + m1*bandpass + m2*lowpass.
