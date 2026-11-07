@@ -11,10 +11,8 @@ jobs:
       matrix:
         include:
           - os: windows-latest
-            gate: true    # MSVC; bench gate enforced
             cmake_args: ""
           - os: ubuntu-latest
-            gate: false   # shared runners are noisy: bench numbers printed only
             cmake_args: "-DCMAKE_CXX_COMPILER=clang++"
     runs-on: ${{ matrix.os }}
     steps:
@@ -25,9 +23,11 @@ jobs:
         run: cmake --build build --config Release --parallel
       - name: Test
         run: ctest --test-dir build -C Release --output-on-failure
+      # Report only: shared runners read 15-50% slower than real hardware. The 1% gate is enforced by
+      # running sorus_bench on a real machine.
       - name: Bench
         shell: bash
-        continue-on-error: ${{ !matrix.gate }}
+        continue-on-error: true
         run: |
           bench=$(find build -name 'sorus_bench' -o -name 'sorus_bench.exe' | head -n 1)
           "$bench"
