@@ -62,7 +62,9 @@ void ParametricEq::commit_mode(int i) {
 void ParametricEq::set_band(int index, const BandParams& p) {
   if (index < 0 || index >= kMaxBands) return;
   const int i = index;
-  params_[i] = clamp(p, sr_);
+  const BandParams c = clamp(p, sr_);
+  if (c == params_[i] && !pending_[i]) return;  // unchanged: no re-glide
+  params_[i] = c;
   if (params_[i].mode == mode_[i]) {  // routing unchanged (also cancels a pending switch)
     pending_[i] = false;
     given_[i] = params_[i];
@@ -133,10 +135,13 @@ double ParametricEq::response_db(double freq) const {
 
 double ParametricEq::peak_boost_db() const {
   constexpr int kPoints = 512;
-  constexpr double kLo = 10, kHi = 22000;
+  constexpr double kLo = 10;
+  const double hi = std::min(22000.0, 0.45 * sr_);  // the band frequency range
   double peak = 0;
   for (int i = 0; i < kPoints; ++i)
-    peak = std::max(peak, response_db(kLo * std::pow(kHi / kLo, static_cast<double>(i) / (kPoints - 1))));
+    peak = std::max(peak, response_db(kLo * std::pow(hi / kLo, static_cast<double>(i) / (kPoints - 1))));
+  for (const auto& p : params_)  // narrow bells can fall between grid points
+    if (p.enabled) peak = std::max(peak, response_db(p.freq));
   return peak;
 }
 

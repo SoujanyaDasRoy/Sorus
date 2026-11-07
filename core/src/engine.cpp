@@ -10,6 +10,7 @@ namespace sorus {
 
 namespace {
 constexpr float kMaxIn = 1000;  // +60 dBFS input clamp: preamp + EQ stay inside float range for sane settings
+double preamp_or(double db, double keep) { return std::isfinite(db) ? std::clamp(db, -24.0, 24.0) : keep; }
 }  // namespace
 
 Engine::Engine(double sample_rate, int max_frames, int channels)
@@ -20,6 +21,9 @@ Engine::Engine(double sample_rate, int max_frames, int channels)
   mirror_->prepare(sample_rate, 1, channels_);
   eq_->prepare(sample_rate, max_frames_, channels_);
   lim_.prepare(sample_rate, max_frames_, channels_);
+  BandParams off;
+  off.enabled = false;  // matches the EQs, which start with every band disabled
+  bands_.fill(off);
   latency_ = lim_.latency_frames();  // > 0: detector delay + lookahead
   ramp_len_ = std::max(1, static_cast<int>(std::lround(0.01 * sample_rate)));
   for (int c = 0; c < channels_; ++c) {
@@ -29,16 +33,21 @@ Engine::Engine(double sample_rate, int max_frames, int channels)
   }
 }
 
-void Engine::set_band(int index, const BandParams& p) {
-  if (index < 0 || index >= kMaxBands) return;
+bool Engine::stage_band(int index, const BandParams& p) {
+  if (index < 0 || index >= kMaxBands || p == bands_[index]) return false;
   bands_[index] = p;
   band_dirty_[index] = true;
   mirror_->set_band(index, p);
-  update_preamp();
+  return true;
+}
+
+void Engine::set_band(int index, const BandParams& p) {
+  if (stage_band(index, p)) update_preamp();
+  else flush();  // unchanged: still retries anything pending
 }
 
 void Engine::set_preamp_db(double db) {
-  if (std::isfinite(db)) preamp_db_ = std::clamp(db, -24.0, 24.0);
+  preamp_db_ = preamp_or(db, preamp_db_);
   update_preamp();
 }
 
@@ -61,13 +70,22 @@ void Engine::set_bypass(Block b, bool bypassed) {
 }
 
 void Engine::load(const Preset& p) {
-  set_preamp_db(p.preamp_db);
-  set_auto_preamp(p.auto_preamp);
-  set_limiter_ceiling_db(p.limiter_ceiling_db);
-  set_bypass(Block::Limiter, !p.limiter_enabled);
+  // Stage everything, then one peak-boost evaluation and one flush. Unchanged values send nothing.
+  preamp_db_ = preamp_or(p.preamp_db, preamp_db_);
+  auto_ = p.auto_preamp;
+  if (p.limiter_ceiling_db != ceiling_db_) {
+    ceiling_db_ = p.limiter_ceiling_db;
+    ceiling_dirty_ = true;
+  }
+  const int lim = static_cast<int>(Block::Limiter);
+  if (bypass_[lim] == p.limiter_enabled) {
+    bypass_[lim] = !p.limiter_enabled;
+    bypass_dirty_[lim] = true;
+  }
   BandParams off;
   off.enabled = false;
-  for (int i = 0; i < kMaxBands; ++i) set_band(i, i < static_cast<int>(p.bands.size()) ? p.bands[i] : off);
+  for (int i = 0; i < kMaxBands; ++i) stage_band(i, i < static_cast<int>(p.bands.size()) ? p.bands[i] : off);
+  update_preamp();
 }
 
 double Engine::eq_response_db(double freq) const { return mirror_->response_db(freq); }

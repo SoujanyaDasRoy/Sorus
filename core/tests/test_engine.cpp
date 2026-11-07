@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <vector>
 
 #include "denormals.h"
@@ -176,4 +177,28 @@ TEST_CASE("engine tolerates bad arguments") {
   e.process_interleaved(buf.data(), 100);  // max_frames 0 -> 1: frame by frame
   for (float v : buf) REQUIRE(std::isfinite(v));
   CHECK(e.eq_response_db(1000) == 0);
+}
+
+// Reloading the preset that is already active must not touch the audio side: same output, bit for bit.
+TEST_CASE("reloading an identical preset leaves the audio untouched") {
+  Preset pr; pr.auto_preamp = true;
+  for (int i = 0; i < kMaxBands; ++i) {
+    BandParams b; b.freq = 30 * std::pow(16000.0 / 30, i / 31.0); b.gain_db = (i % 2) ? -6 : 6; b.q = 1 + i % 4;
+    pr.bands.push_back(b);
+  }
+  Engine a(48000, 512, 2), b(48000, 512, 2);
+  a.load(pr); b.load(pr);
+  constexpr int n = 48000;
+  std::vector<float> x(2 * n);
+  uint32_t s = 1;
+  for (auto& v : x) { s = s * 1664525u + 1013904223u; v = 0.25f * ((s >> 8) / 16777216.0f - 0.5f); }
+  auto ya = x, yb = x;
+  for (int pos = 0; pos < n; pos += 512) {
+    if (pos == 24064) a.load(pr);  // bands settled long ago
+    a.process_interleaved(ya.data() + 2 * pos, std::min(512, n - pos));
+    b.process_interleaved(yb.data() + 2 * pos, std::min(512, n - pos));
+  }
+  int diff = 0;
+  for (int i = 0; i < 2 * n; ++i) diff += ya[i] != yb[i];
+  CHECK(diff == 0);
 }

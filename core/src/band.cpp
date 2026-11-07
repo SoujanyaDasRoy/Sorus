@@ -128,7 +128,7 @@ void Band::set(const BandParams& raw) {
   // ponytail: sections only retire on the next snap (reset/prepare); idle ones still cost a tick each.
   live_ = std::max(live_, n);
   for (auto& s : slots_) {
-    s.settle = settle_;  // every change re-arms the glide
+    if (enabled_ || was_enabled) s.settle = settle_;  // re-arm the glide; a disabled band keeps gliding out
     s.steady = false;
     if (!was_enabled && enabled_ && s.bypassed) {  // fully bypassed: start clean from pass-through
       s.clear_state();

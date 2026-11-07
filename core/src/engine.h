@@ -32,12 +32,13 @@ class Engine {
   bool flush();
   // Out-of-range index ignored. The band and its new effective preamp travel in one command, so the
   // audio thread never plays a band change without its auto-preamp compensation.
-  void set_band(int index, const BandParams& p);
+  void set_band(int index, const BandParams& p);  // unchanged params: no-op (still flushes)
   void set_preamp_db(double db);                  // clamped to +-24 dB; non-finite ignored
   void set_auto_preamp(bool on);                  // on by default
   void set_limiter_ceiling_db(double db);         // limiter clamps to [-24, 0] dBTP
   void set_bypass(Block b, bool bypassed);
-  void load(const Preset& p);  // every field; bands past p.bands.size() are disabled
+  // Every field; bands past p.bands.size() are disabled. Unchanged bands are left alone (no re-glide).
+  void load(const Preset& p);
   double eq_response_db(double freq) const;  // EQ curve as set (ignores bypass)
   int latency_frames() const { return latency_; }
 
@@ -62,6 +63,7 @@ class Engine {
     }
   };
 
+  bool stage_band(int index, const BandParams& p);  // control: mirror + dirty; false if unchanged/out of range
   void update_preamp();  // control: recompute the effective preamp, then flush
   void apply(const Command& c);
   void run(int frames);  // audio: chain on the planar scratch

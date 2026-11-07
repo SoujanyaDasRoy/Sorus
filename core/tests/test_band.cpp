@@ -118,3 +118,14 @@ TEST_CASE("band state recovers from an overflowing input") {
   b.process(hit.data(), 64, 0);
   CHECK(std::abs(measure_gain_db([&](float* x, int n) { b.process(x, n, 0); }, 48000, 1000) - 6) < 0.05);
 }
+// Edits to a disabled band that is still gliding out must not restart its 0.2 s glide.
+TEST_CASE("editing a disabled gliding band does not extend its glide") {
+  BandParams p; p.gain_db = 12;
+  Band b; b.prepare(48000); b.set(p);
+  std::vector<float> x(5000, 0.f);
+  p.enabled = false; b.set(p);
+  b.process(x.data(), 5000, 0);
+  p.gain_db = 6; b.set(p);
+  b.process(x.data(), 5000, 0);  // 10000 samples since disable > 0.2 s
+  CHECK(b.settled(0));
+}

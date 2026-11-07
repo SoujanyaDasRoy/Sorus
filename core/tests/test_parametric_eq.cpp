@@ -64,6 +64,11 @@ TEST_CASE("peak boost of stacked bells") {
   p.gain_db = -6; eq.set_band(0, p); eq.set_band(1, p);
   CHECK(eq.peak_boost_db() == 0);
 }
+TEST_CASE("peak boost finds a narrow bell between grid points") {
+  ParametricEq eq; eq.prepare(48000, 512, 2);
+  BandParams p; p.gain_db = 12; p.q = 40; p.freq = 1000; eq.set_band(0, p);
+  CHECK(eq.peak_boost_db() == doctest::Approx(12).epsilon(0.001));
+}
 TEST_CASE("mode change does not click") {
   ParametricEq eq; eq.prepare(48000, 48000, 2);
   BandParams p; p.gain_db = 12; p.q = 1; p.mode = ChannelMode::Left; eq.set_band(0, p);
