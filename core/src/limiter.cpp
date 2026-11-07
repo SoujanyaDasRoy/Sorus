@@ -7,7 +7,7 @@
 #if defined(__SSE2__) || defined(_M_X64) || (defined(_M_IX86_FP) && _M_IX86_FP >= 2)
 #include <emmintrin.h>
 #define SORUS_LIMITER_SSE2 1
-#elif defined(__ARM_NEON) || defined(_M_ARM64)
+#elif defined(__aarch64__) || defined(_M_ARM64)  // A64 only: vmaxnmq_f32 does not exist on 32-bit ARMv7
 #include <arm_neon.h>
 #define SORUS_LIMITER_NEON 1
 #endif
@@ -20,7 +20,8 @@ using std::numbers::pi;
 
 double db_to_lin(double db) { return std::pow(10, db / 20); }
 
-// Four floats: SSE2 / NEON, else a plain array (same arithmetic, same rounding: no fused multiply-add).
+// Four floats: SSE2 / NEON, else a plain array. Same arithmetic; rounding may differ slightly (a compiler may
+// fuse multiply-adds, e.g. GCC -ffp-contract=fast), which the 1e-4 margin in quiet_ covers.
 // max(c, keep) ignores a NaN `c` in every backend.
 #if defined(SORUS_LIMITER_SSE2)
 struct F4 {
