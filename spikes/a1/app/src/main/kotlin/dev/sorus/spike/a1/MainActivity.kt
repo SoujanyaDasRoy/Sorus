@@ -35,12 +35,22 @@ class MainActivity : Activity() {
         fun button(label: String, onClick: () -> Unit) =
             root.addView(Button(this).apply { text = label; setOnClickListener { onClick() } }, MATCH_PARENT, WRAP_CONTENT)
         button("1. Grant permissions via Shizuku") { grant() }
-        button("2. Start capture") { start() }
-        button("3. Stop") { stopService(Intent(this, CaptureService::class.java)) }
+        button("2. A1: start full mode (capture)") { start() }
+        button("3. A1: stop") { stopService(Intent(this, CaptureService::class.java)) }
+        button("A2: start session mode") {
+            stopService(Intent(this, CaptureService::class.java))  // never both at once: they share sessions
+            startForegroundService(Intent(this, SessionService::class.java))
+        }
+        button("A2: show table") { sendToSession(SessionService.ACTION_TABLE) }
+        button("A2: stop") { stopService(Intent(this, SessionService::class.java)) }
         root.addView(CheckBox(this).apply {
-            text = "+6 dB bass shelf (untick to hear the difference)"
+            text = "Effect on (A1: +6 dB bass, A2: telephone EQ). Untick to hear the difference"
             isChecked = Spike.bassOn
-            setOnCheckedChangeListener { _, on -> Spike.bassOn = on; Spike.log("bass " + if (on) "on" else "off") }
+            setOnCheckedChangeListener { _, on ->
+                Spike.bassOn = on
+                Spike.log("effect " + if (on) "on" else "off")
+                sendToSession(SessionService.ACTION_APPLY)
+            }
         })
         logView = TextView(this).apply { textSize = 12f; setTextIsSelectable(true) }
         root.addView(ScrollView(this).apply { addView(logView) }, MATCH_PARENT, MATCH_PARENT)
@@ -78,7 +88,12 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun sendToSession(action: String) {
+        if (SessionService.active) startService(Intent(this, SessionService::class.java).setAction(action))
+    }
+
     private fun start() {
+        stopService(Intent(this, SessionService::class.java))
         val mpm = getSystemService(MediaProjectionManager::class.java)
         @Suppress("DEPRECATION")
         startActivityForResult(mpm.createScreenCaptureIntent(), 2)

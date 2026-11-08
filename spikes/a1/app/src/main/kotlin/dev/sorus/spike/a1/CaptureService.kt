@@ -166,41 +166,24 @@ class CaptureService : Service() {
         track.stop(); track.release()
     }
 
-    private val playerLine = Regex("AudioPlaybackConfiguration piid:")
-    private val uidRe = Regex("u/pid:(\\d+)/")
-    private val sessionRe = Regex("session(?:Id)?:(\\d+)")
-    private val usageRe = Regex("usage=(\\w+)")
-    private val flagsRe = Regex("flags=0x([0-9A-Fa-f]+)")
-    private val stateRe = Regex("state:(\\w+)")
-    private val capturable = setOf("USAGE_MEDIA", "USAGE_GAME", "USAGE_UNKNOWN")
     private val noProjectionFlag = 1 shl 10  // AudioAttributes.FLAG_NO_MEDIA_PROJECTION
 
     private fun muterLoop() {
-        var loggedSample = false
-        var dumpFailing = false
+        val dumper = Spike.Dumper()
         while (running) {
-            val dump = runCatching { Spike.sh("dumpsys audio") }.onSuccess { dumpFailing = false }.getOrElse {
-                if (!dumpFailing) Spike.log("dumpsys failed: ${it.cause ?: it} (Shizuku running and permitted?)")
-                dumpFailing = true
-                ""
-            }
             val seen = HashSet<Int>()
             val started = HashSet<Int>()
-            for (line in dump.lineSequence().filter { playerLine.containsMatchIn(it) }) {
-                if (!loggedSample) { Spike.log("player line sample: ${line.trim()}"); loggedSample = true }
-                val uid = uidRe.find(line)?.groupValues?.get(1)?.toInt() ?: continue
-                val session = sessionRe.find(line)?.groupValues?.get(1)?.toInt() ?: continue
-                val usage = usageRe.find(line)?.groupValues?.get(1) ?: continue
-                val flags = flagsRe.find(line)?.groupValues?.get(1)?.toInt(16) ?: 0
-                if (uid == Process.myUid() || session <= 0 || usage !in capturable) continue  // never session 0 (output mix)
+            for (pl in dumper.players()) {
+                if (pl.uid == Process.myUid() || !pl.eligible) continue
+                val (uid, session, usage) = pl
                 val pkg = packageManager.getNameForUid(uid) ?: uid.toString()
-                if (flags and noProjectionFlag != 0) {
+                if (pl.flags and noProjectionFlag != 0) {
                     if (session !in mutes) Spike.log("not muting $pkg session $session: app forbids capture")
                     continue
                 }
                 seen += session
                 sessionUid[session] = uid
-                val isStarted = stateRe.find(line)?.groupValues?.get(1) == "started"
+                val isStarted = pl.started
                 if (isStarted) started += session
                 if (session in mutes) continue
                 if (session in uncapturable) {
