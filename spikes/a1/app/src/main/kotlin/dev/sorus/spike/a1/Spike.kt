@@ -10,6 +10,7 @@ import java.util.Locale
 /** Shared state for the throwaway A1 spike: on-screen log, bass toggle, Shizuku shell. */
 object Spike {
     @Volatile var bassOn = true
+    @Volatile var blockFrames = 480  // full-mode block size (A4 tries 240)
 
     private val main = Handler(Looper.getMainLooper())
     private val lines = ArrayDeque<String>()

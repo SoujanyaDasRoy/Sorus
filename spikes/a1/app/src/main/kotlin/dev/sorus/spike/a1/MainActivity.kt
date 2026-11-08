@@ -35,7 +35,8 @@ class MainActivity : Activity() {
         fun button(label: String, onClick: () -> Unit) =
             root.addView(Button(this).apply { text = label; setOnClickListener { onClick() } }, MATCH_PARENT, WRAP_CONTENT)
         button("1. Grant permissions via Shizuku") { grant() }
-        button("2. A1: start full mode (capture)") { start() }
+        button("2. A1: start full mode (capture)") { Spike.blockFrames = 480; start() }
+        button("A4: full mode with 5 ms blocks") { Spike.blockFrames = 240; start() }
         button("3. A1: stop") { stopService(Intent(this, CaptureService::class.java)) }
         button("A2: start session mode") {
             stopService(Intent(this, CaptureService::class.java))  // never both at once: they share sessions
@@ -43,6 +44,11 @@ class MainActivity : Activity() {
         }
         button("A2: show table") { sendToSession(SessionService.ACTION_TABLE) }
         button("A2: stop") { stopService(Intent(this, SessionService::class.java)) }
+        button("A3: measure EQ fit (plays tones ~9 min)") {
+            stopService(Intent(this, CaptureService::class.java))
+            stopService(Intent(this, SessionService::class.java))
+            thread(name = "a3") { runCatching { A3Runner(applicationContext).run() }.onFailure { Spike.log("A3 failed: $it") } }
+        }
         root.addView(CheckBox(this).apply {
             text = "Effect on (A1: +6 dB bass, A2: telephone EQ). Untick to hear the difference"
             isChecked = Spike.bassOn

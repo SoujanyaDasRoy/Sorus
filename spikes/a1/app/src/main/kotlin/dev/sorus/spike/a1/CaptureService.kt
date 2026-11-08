@@ -99,7 +99,7 @@ class CaptureService : Service() {
     private fun audioLoop(p: MediaProjection) {
         Process.setThreadPriority(Process.THREAD_PRIORITY_URGENT_AUDIO)
         val rate = 48000
-        val frames = 480  // 10 ms
+        val frames = Spike.blockFrames  // 480 = 10 ms (A4 also tries 240)
         val config = AudioPlaybackCaptureConfiguration.Builder(p)
             .addMatchingUsage(AudioAttributes.USAGE_MEDIA)
             .addMatchingUsage(AudioAttributes.USAGE_GAME)
@@ -134,6 +134,8 @@ class CaptureService : Service() {
             .setPerformanceMode(AudioTrack.PERFORMANCE_MODE_LOW_LATENCY)
             .build()
 
+        // A4: blocking writes keep the track buffer full, so its usable size is the output queue. Cap it at 3 blocks.
+        track.setBufferSizeInFrames(frames * 3)
         val shelf = LowShelf(rate.toDouble(), 100.0, 6.0)
         val buf = FloatArray(frames * 2)
         record.startRecording()
@@ -142,9 +144,22 @@ class CaptureService : Service() {
         var lastReport = t0
         var total = 0L
         var peak = 0f
+        // A4: capture -> presentation latency of the same sample, from AudioRecord/AudioTrack timestamps.
+        val recTs = android.media.AudioTimestamp()
+        val outTs = android.media.AudioTimestamp()
+        var latSum = 0.0; var latN = 0; var latMin = Double.MAX_VALUE; var latMax = 0.0
+        var capSum = 0.0; var outSum = 0.0
+        var capTotal = 0L
+        var block = 0L
+        Spike.log("full mode: ${frames * 1000 / rate} ms blocks, record buffer ${record.bufferSizeInFrames} " +
+            "frames, track buffer ${track.bufferSizeInFrames} frames")
         while (running) {
+            val readAt = capTotal  // this block's first frame in the capture (counts dropped blocks too)
+            val writeAt = total    // ... and in the output
             val n = record.read(buf, 0, buf.size, AudioRecord.READ_BLOCKING)
             if (n <= 0) continue
+            capTotal += n / 2
+            val gotAt = System.nanoTime()
             if (Spike.bassOn) shelf.process(buf, n) else shelf.reset()
             for (i in 0 until n) {
                 buf[i] = buf[i].coerceIn(-1f, 1f)
@@ -152,14 +167,30 @@ class CaptureService : Service() {
             }
             track.write(buf, 0, n, AudioTrack.WRITE_BLOCKING)
             total += n / 2
+            if (++block % 10 == 0L &&record.getTimestamp(recTs, android.media.AudioTimestamp.TIMEBASE_MONOTONIC) ==
+                AudioRecord.SUCCESS && track.getTimestamp(outTs)) {
+                val captured = recTs.nanoTime + (readAt - recTs.framePosition) * 1e9 / rate
+                val presented = outTs.nanoTime + (writeAt - outTs.framePosition) * 1e9 / rate
+                val ms = (presented - captured) / 1e6
+                if (ms > 0 && ms < 1000) {
+                    latSum += ms; latN++; latMin = minOf(latMin, ms); latMax = max(latMax, ms)
+                    capSum += (gotAt - captured) / 1e6  // capture side: captured -> handed to us
+                    outSum += (presented - gotAt) / 1e6  // our processing + output side
+                }
+                // Tried: dropping a block whenever the capture side exceeded 2 blocks + 10 ms. The capture side stayed
+                // ~82 ms (it is the remote-submix pipe, not a backlog) and underruns went into the hundreds. Removed.
+            }
             val now = System.nanoTime()
             for (i in 0 until n) if (abs(buf[i]) > 1e-4f) { lastSignalNs = now; break }  // above -80 dBFS
             if (now - lastReport > 30_000_000_000L) {  // every 30 s: proves it survives screen-off
                 val db = if (peak > 0) 20 * log10(peak) else -999f
+                val lat = if (latN > 0) "latency %.1f ms (%.1f-%.1f) = capture %.1f + output %.1f".format(
+                    latSum / latN, latMin, latMax, capSum / latN, outSum / latN) else "latency n/a"
                 Spike.log("t=${(now - t0) / 1_000_000_000}s frames=$total peak=${"%.1f".format(db)} dBFS " +
-                    "underruns=${track.underrunCount} muted=$mutedCount")
+                    "underruns=${track.underrunCount} muted=$mutedCount $lat")
                 lastReport = now
                 peak = 0f
+                latSum = 0.0; latN = 0; latMin = Double.MAX_VALUE; latMax = 0.0; capSum = 0.0; outSum = 0.0
             }
         }
         record.stop(); record.release()

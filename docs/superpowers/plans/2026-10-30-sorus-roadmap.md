@@ -20,13 +20,21 @@ Builders: the owner + Claude. Platforms advance milestone by milestone on the sh
 | M1a | Go/no-go spikes **W1**, **A1** | M0 | `docs/spikes/W1.md`, `docs/spikes/A1.md` with verdict | this file, below |
 | M2 | Core engine v1 (EQ + preamp + limiter + presets + C API + bench) | M0 | `core/` static lib, tests green, bench under budget | **written** |
 | M1b | Spikes **W2**, **A2**, **A3**, **A4** | M2 (A3 needs the fitter) | `docs/spikes/*.md` | this file, below |
-| M3 | Windows v0: APO host + installer + minimal WinUI 3 app (load preset, Simple tab graphic EQ, enable/disable) | M2, W1, W2 | Installable `.msi`/`.exe`, EQ works system-wide | write at start |
-| M4 | Android v0: session mode (foreground service, session broadcasts, DynamicsProcessing fitted EQ, Simple tab) | M2, A2, A3 | Installable APK, EQ applies to announcing apps | write at start |
+| M3 | Windows v0: APO host + installer + minimal WinUI 3 app (load preset, Simple tab graphic EQ, enable/disable) | M2, W1, W2 | Installable `.msi`/`.exe`, EQ works system-wide | **written:** `2026-11-08-sorus-windows-v0.md` |
+| M4 | Android v0: session mode (foreground service, session broadcasts, DynamicsProcessing fitted EQ, Simple tab) | M2, A2, A3 | Installable APK, EQ applies to announcing apps | **written:** `2026-11-08-sorus-android-v0.md` |
 | M5 | Android full mode (Shizuku setup wizard, playback capture → core → Oboe, per-app coverage list) | M4, A1 pass, A4 | Full engine on Android | write at start |
 | M6 | Pro EQ v2: dynamic EQ, linear phase, analyzer feed, M/S UI, snapshots/undo, A/B gain-matched bypass, SIMD (NEON / SSE4.1+AVX2 dispatch) | M2 | Core + Pro tab on both platforms | write at start |
 | M7 | Effects: compressor/multiband, bass engine, saturation, stereo/crossfeed, HRTF (libmysofa), convolution, LUFS normalization, dialogue, night mode, speaker protection | M6 | Movie + Music modes | write at start |
 | M8 | Smart features: headphone correction DB + targets, ISO 226 loudness comp, hearing profile, device/app profiles + rules, import/export (EqualizerAPO, REW, GraphicEQ), tray/QS tile/widget, meters, exposure tracking | M3, M4 | Feature-complete v1 | write at start |
 | M9 | Distribution: GitHub Releases CI, F-Droid metadata, SignPath signing, Microsoft Store (if free) | M3, M4 | Public v1 release | write at start |
+
+**Spike results (2026-11-08, `docs/spikes/`):**
+- **W1 PASS:** unsigned APO loads.
+- **W2 PASS:** shared-memory settings path works.
+- **A1 PASS:** full mode works without root, with per-session capturability.
+- **A2 mapped:** Shizuku `dumpsys` is needed for most apps; Chrome is unreachable.
+- **A3 FAIL vs 1 dB:** everyday curves 0.6–2.9 dB; steep filters impossible.
+- **A4 FAIL vs 40 ms:** full mode adds about 60 ms, so video apps default to session mode.
 
 If **A1 fails**: skip M5, ship Android on session mode (owner decision), keep researching full mode.
 If **W1 fails**: stop and revisit the Windows design with the owner before M3 (only free options are acceptable).

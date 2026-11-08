@@ -1,0 +1,32 @@
+﻿preset                 |  32: centre  avg  minmax |  64: centre  avg  minmax | 128: centre  avg  minmax   (max |error| dB)
+small bell 1k +3       |       0.43  0.42  0.41 |       0.21  0.21  0.21 |       0.10  0.10  0.10
+bass shelf 100 +6      |       0.59  0.59  0.59 |       0.30  0.30  0.30 |       0.15  0.15  0.15
+treble shelf 8k +6     |       0.69  0.68  0.68 |       0.36  0.36  0.37 |       0.18  0.18  0.18
+V-shape                |       0.60  0.60  0.60 |       0.31  0.31  0.32 |       0.15  0.15  0.15
+Harman-like            |       0.48  0.49  0.49 |       0.25  0.25  0.25 |       0.12  0.12  0.12
+loudness               |       0.77  0.77  0.75 |       0.38  0.38  0.38 |       0.20  0.20  0.19
+vocal + HP80           |       1.84  1.84  1.84 |       0.92  0.91  0.91 |       0.45  0.45  0.45
+narrow cut 3k Q8       |       5.11  4.70  4.32 |       4.57  2.80  2.43 |       2.47  2.16  2.14
+narrow boost 60 Q4     |       4.02  3.60  3.24 |       2.25  1.94  1.84 |       1.16  1.13  1.08
+HP 100 24dB            |       3.54  3.52  3.49 |       1.72  1.72  1.73 |       0.93  0.93  0.93
+LP 5k 12dB             |       2.80  2.75  2.71 |       1.45  1.46  1.49 |       0.75  0.75  0.74
+headphone correction   |       1.75  1.70  1.60 |       0.86  0.88  0.90 |       0.45  0.45  0.46
+sub bass 40 +10        |       1.98  1.95  1.87 |       0.97  0.96  0.98 |       0.46  0.46  0.47
+de-ess 7k -6 Q3        |       2.40  2.19  1.98 |       1.22  1.10  1.11 |       0.68  0.65  0.61
+tilt 1k +3             |       0.31  0.31  0.31 |       0.16  0.16  0.15 |       0.08  0.08  0.08
+mid scoop 500 -6       |       0.69  0.69  0.68 |       0.34  0.34  0.34 |       0.17  0.17  0.17
+telephone              |       3.75  3.77  3.80 |       1.86  1.86  1.85 |       0.97  0.97  0.97
+max shelves +12        |       1.45  1.42  1.39 |       0.73  0.72  0.71 |       0.37  0.37  0.37
+hum notch 50 Q10       |      15.14 12.93  9.30 |      21.10  8.72 12.04 |      10.99  7.69 18.09
+31-band graphic +-3    |       3.42  2.79  2.87 |       2.17  1.52  1.57 |       1.04  0.91  1.27
+
+summary over 20 presets (worst max error / worst RMS error / presets over 1 dB):
+   32 bands, centre : max 15.14 dB, rms 1.16 dB, 12 over 1 dB
+   32 bands, average: max 12.93 dB, rms 1.06 dB, 12 over 1 dB
+   32 bands, minimax: max  9.30 dB, rms 1.30 dB, 12 over 1 dB
+   64 bands, centre : max 21.10 dB, rms 2.17 dB,  8 over 1 dB
+   64 bands, average: max  8.72 dB, rms 0.71 dB,  8 over 1 dB
+   64 bands, minimax: max 12.04 dB, rms 1.13 dB,  8 over 1 dB
+  128 bands, centre : max 10.99 dB, rms 0.73 dB,  4 over 1 dB
+  128 bands, average: max  7.69 dB, rms 0.72 dB,  3 over 1 dB
+  128 bands, minimax: max 18.09 dB, rms 1.46 dB,  4 over 1 dB
